@@ -1,0 +1,23 @@
+# ─── SECRET FILES — NEVER COMMIT ──────────────────────
+config.js
+.env
+.env.local
+.env.*
+!.env.example
+
+# ─── OS / Editor ──────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# ─── Node (for build.js) ──────────────────────────────
+node_modules/
+npm-debug.log
+
+# ─── Old portfolio versions (keep only final) ─────────
+karim-portfolio.html
+karim-portfolio.jsx
+karim-portfolio-3d.html

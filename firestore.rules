@@ -1,0 +1,33 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Visitors — write from portfolio, no public read
+    match /visitors/{docId} {
+      allow create: if request.resource.data.keys().hasAll(['fingerprint','visitTime','sessionId']);
+      allow read, update, delete: if false;
+    }
+
+    // Conversations (chatbot) — write from portfolio, no public read
+    match /conversations/{docId} {
+      allow create: if request.resource.data.keys().hasAll(['sessionId','startedAt','messages']);
+      allow update: if request.resource.data.diff(resource.data)
+                       .affectedKeys().hasOnly(['messages','lastActive','messageCount']);
+      allow read, delete: if false;
+    }
+
+    // Contact messages — write from portfolio, no public read/delete
+    match /messages/{docId} {
+      allow create: if request.resource.data.keys().hasAll(['name','email','message'])
+                    && request.resource.data.name   is string
+                    && request.resource.data.email  is string
+                    && request.resource.data.message is string;
+      allow update: if request.resource.data.diff(resource.data)
+                       .affectedKeys().hasOnly(['read']);
+      allow read, delete: if false;
+    }
+
+    // NOTE: admin.html needs Firestore test mode (30 days) OR
+    // Firebase Auth to read — use Firebase Console to switch to test mode.
+  }
+}

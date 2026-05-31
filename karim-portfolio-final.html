@@ -1,0 +1,6039 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Karim Thabet — Portfolio</title>
+    <script src="config.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+    <script>
+      // ═══════════════════════════════════════════════════════════════
+      //  FIREBASE FIRESTORE — Chat Log Database (Compat SDK v9)
+      //  Logs every chatbot Q&A with visitor info.
+      //  View at: admin.html
+      // ═══════════════════════════════════════════════════════════════
+
+      // ── Session ID (unique per browser session) ────────────────────
+      var CB_SESSION_ID = (function () {
+        var id = sessionStorage.getItem("_cb_sid");
+        if (!id) {
+          id = Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
+          sessionStorage.setItem("_cb_sid", id);
+        }
+        return id;
+      })();
+
+      var _cbDb = null; // Firestore instance
+      var _cbConvId = null; // Current conversation doc ID
+      var _cbInitialized = false;
+      var _cbMsgCount = 0;
+      var _cbPendingQueue = []; // Queue messages while initializing
+
+      // ── Initialize Firebase ────────────────────────────────────────
+      function cbFirebaseInit() {
+        if (_cbInitialized) return;
+        var cfg = window._ENV && window._ENV.FIREBASE_CONFIG;
+        if (!cfg || !cfg.apiKey) {
+          console.warn("[ChatDB] Firebase config missing in config.js");
+          return;
+        }
+        try {
+          // Prevent "app already exists" error on hot reloads
+          var app = firebase.apps.length
+            ? firebase.app()
+            : firebase.initializeApp(cfg);
+          _cbDb = firebase.firestore();
+          _cbInitialized = true;
+          console.log("[ChatDB] ✓ Firebase connected");
+          // Flush any messages that arrived before init
+          if (_cbPendingQueue.length) {
+            _cbPendingQueue.forEach(function (p) {
+              cbDbLogMessage(p.q, p.a);
+            });
+            _cbPendingQueue = [];
+          }
+        } catch (e) {
+          console.error("[ChatDB] Init error:", e.message);
+        }
+      }
+
+      // ── Create conversation document (once per session) ────────────
+      function cbDbCreateConversation(visitorInfo, callback) {
+        if (!_cbDb) {
+          callback && callback();
+          return;
+        }
+        _cbDb
+          .collection("conversations")
+          .add({
+            sessionId: CB_SESSION_ID,
+            startedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            lastActive: firebase.firestore.FieldValue.serverTimestamp(),
+            location: visitorInfo.location || "Unknown",
+            device: visitorInfo.device || "Unknown",
+            browser: visitorInfo.browser || "Unknown",
+            pageUrl: window.location.href,
+            messageCount: 0,
+            messages: [],
+          })
+          .then(function (ref) {
+            _cbConvId = ref.id;
+            console.log("[ChatDB] ✓ Conversation created:", _cbConvId);
+            callback && callback();
+          })
+          .catch(function (e) {
+            console.error("[ChatDB] Create conversation error:", e.message);
+            console.error(
+              "[ChatDB] Check Firestore rules at Firebase Console → Firestore → Rules",
+            );
+            callback && callback();
+          });
+      }
+
+      // ── Gather visitor info ────────────────────────────────────────
+      function cbGetVisitorInfo(callback) {
+        var ua = navigator.userAgent;
+        var device = /Mobi|Android/i.test(ua) ? "Mobile" : "Desktop";
+        var browser = ua.includes("Edg")
+          ? "Edge"
+          : ua.includes("Chrome")
+            ? "Chrome"
+            : ua.includes("Firefox")
+              ? "Firefox"
+              : ua.includes("Safari")
+                ? "Safari"
+                : "Other";
+        var info = { device: device, browser: browser, location: "Unknown" };
+        fetch("https://ipapi.co/json/")
+          .then(function (r) {
+            return r.json();
+          })
+          .then(function (d) {
+            if (d && d.city)
+              info.location = d.city + ", " + (d.country_name || "");
+            callback(info);
+          })
+          .catch(function () {
+            callback(info);
+          });
+      }
+
+      // ── PUBLIC: Log a Q&A pair ─────────────────────────────────────
+      window.cbDbLogMessage = function (question, answer) {
+        if (!_cbInitialized) {
+          _cbPendingQueue.push({ q: question, a: answer });
+          cbFirebaseInit();
+          return;
+        }
+        if (!_cbDb) return;
+
+        var entry = {
+          time: new Date().toISOString(),
+          question: question,
+          answer: answer,
+        };
+
+        function doUpdate() {
+          _cbMsgCount++;
+          _cbDb
+            .collection("conversations")
+            .doc(_cbConvId)
+            .update({
+              messages: firebase.firestore.FieldValue.arrayUnion(entry),
+              lastActive: firebase.firestore.FieldValue.serverTimestamp(),
+              messageCount: _cbMsgCount,
+            })
+            .then(function () {
+              console.log("[ChatDB] ✓ Message logged (conv:", _cbConvId, ")");
+            })
+            .catch(function (e) {
+              console.error("[ChatDB] Update error:", e.message);
+            });
+        }
+
+        if (!_cbConvId) {
+          // First message — create the conversation doc then update it
+          cbGetVisitorInfo(function (info) {
+            cbDbCreateConversation(info, function () {
+              if (_cbConvId) doUpdate();
+            });
+          });
+        } else {
+          doUpdate();
+        }
+      };
+
+      // ── Init immediately when config is ready ─────────────────────
+      (function () {
+        if (
+          window._ENV &&
+          window._ENV.FIREBASE_CONFIG &&
+          window._ENV.FIREBASE_CONFIG.apiKey
+        ) {
+          cbFirebaseInit();
+        } else {
+          // config.js might not have run yet — wait for it
+          window.addEventListener("load", function () {
+            cbFirebaseInit();
+          });
+        }
+      })();
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #04020f;
+        font-family: -apple-system, "SF Pro Display", "Segoe UI", sans-serif;
+        color: #fff;
+      }
+      ::-webkit-scrollbar {
+        display: none;
+      }
+      #c {
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+      }
+
+      /* ── SCENE PANELS ─────────────────────────────── */
+      .panel {
+        position: fixed;
+        inset: 0;
+        z-index: 10;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none;
+        opacity: 0;
+        transform: translateY(28px);
+        transition:
+          opacity 0.55s cubic-bezier(0.22, 1, 0.36, 1),
+          transform 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+        will-change: opacity, transform;
+      }
+      .panel.show {
+        opacity: 1;
+        transform: translateY(0);
+        pointer-events: auto;
+      }
+      .panel.hide-up {
+        opacity: 0;
+        transform: translateY(-32px);
+      }
+      .panel.hide-dn {
+        opacity: 0;
+        transform: translateY(32px);
+      }
+
+      /* ── GLASS ────────────────────────────────────── */
+      .g {
+        background: rgba(255, 255, 255, 0.06);
+        backdrop-filter: blur(22px);
+        -webkit-backdrop-filter: blur(22px);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 22px;
+      }
+      .gs {
+        background: rgba(255, 255, 255, 0.11);
+        backdrop-filter: blur(34px);
+        -webkit-backdrop-filter: blur(34px);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 24px;
+      }
+
+      /* ── TYPOGRAPHY ───────────────────────────────── */
+      @keyframes shimmer {
+        0% {
+          background-position: 0% 50%;
+        }
+        50% {
+          background-position: 100% 50%;
+        }
+        100% {
+          background-position: 0% 50%;
+        }
+      }
+      .grad {
+        background: linear-gradient(135deg, #a78bfa, #38bdf8, #f472b6);
+        background-size: 300%;
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        animation: shimmer 6s ease infinite;
+      }
+      .lbl {
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 5px;
+        text-transform: uppercase;
+        display: block;
+        margin-bottom: 13px;
+        opacity: 0.6;
+      }
+
+      /* ── BUTTONS ──────────────────────────────────── */
+      .bp {
+        padding: 13px 32px;
+        border-radius: 100px;
+        background: linear-gradient(135deg, #6c63ff, #38bdf8);
+        color: #fff;
+        border: none;
+        font-size: 14px;
+        font-weight: 800;
+        cursor: pointer;
+        font-family: inherit;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        text-decoration: none;
+        transition:
+          transform 0.2s,
+          box-shadow 0.2s;
+        letter-spacing: 0.3px;
+        box-shadow:
+          0 0 24px rgba(108, 99, 255, 0.4),
+          0 0 48px rgba(108, 99, 255, 0.15);
+      }
+      .bp:hover {
+        transform: scale(1.08) translateY(-3px);
+        box-shadow:
+          0 0 48px rgba(108, 99, 255, 0.7),
+          0 0 96px rgba(56, 189, 248, 0.3);
+      }
+      .bg {
+        padding: 12px 26px;
+        border-radius: 100px;
+        background: rgba(255, 255, 255, 0.08);
+        color: rgba(200, 195, 255, 0.9);
+        border: 1.5px solid rgba(108, 99, 255, 0.35);
+        font-size: 14px;
+        font-weight: 800;
+        cursor: pointer;
+        font-family: inherit;
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        text-decoration: none;
+        transition: all 0.24s ease;
+        backdrop-filter: blur(12px);
+      }
+      .bg:hover {
+        background: rgba(108, 99, 255, 0.18);
+        transform: translateY(-4px);
+        border-color: rgba(108, 99, 255, 0.6);
+      }
+      .bsm {
+        padding: 6px 16px;
+        border-radius: 100px;
+        background: rgba(255, 255, 255, 0.1);
+        color: rgba(210, 205, 255, 0.85);
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        font-size: 12px;
+        font-weight: 800;
+        cursor: pointer;
+        font-family: inherit;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        transition: all 0.2s;
+        backdrop-filter: blur(10px);
+      }
+      .bsm:hover {
+        background: rgba(255, 255, 255, 0.2);
+        transform: scale(1.06);
+      }
+
+      /* ── TAGS ─────────────────────────────────────── */
+      .tag {
+        padding: 4px 13px;
+        border-radius: 100px;
+        font-size: 11px;
+        font-weight: 800;
+        border: 1px solid;
+        display: inline-block;
+        letter-spacing: 0.2px;
+      }
+
+      /* ── LIFT ─────────────────────────────────────── */
+      .lift {
+        transition:
+          transform 0.38s cubic-bezier(0.34, 1.56, 0.64, 1),
+          box-shadow 0.38s;
+        cursor: pointer;
+      }
+      .lift:hover {
+        transform: translateY(-11px) scale(1.025);
+        box-shadow: 0 30px 70px rgba(108, 99, 255, 0.22);
+      }
+
+      /* ── SIDE NAV ─────────────────────────────────── */
+      #nav {
+        position: fixed;
+        right: 26px;
+        top: 50%;
+        transform: translateY(-50%);
+        z-index: 1000;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        align-items: flex-end;
+      }
+      .nw {
+        position: relative;
+        display: flex;
+        align-items: center;
+      }
+      .nl {
+        position: absolute;
+        right: 22px;
+        white-space: nowrap;
+        font-size: 10px;
+        font-weight: 800;
+        color: #a78bfa;
+        background: rgba(4, 2, 15, 0.92);
+        padding: 4px 12px;
+        border-radius: 100px;
+        border: 1px solid rgba(108, 99, 255, 0.3);
+        letter-spacing: 0.5px;
+        opacity: 0;
+        transition: opacity 0.2s;
+        pointer-events: none;
+        backdrop-filter: blur(10px);
+      }
+      .nw:hover .nl,
+      .nw.on .nl {
+        opacity: 1;
+      }
+      .nd {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        border: none;
+        cursor: pointer;
+        background: rgba(108, 99, 255, 0.28);
+        transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+      }
+      .nd.on {
+        width: 12px;
+        height: 12px;
+        background: #6c63ff;
+        box-shadow:
+          0 0 18px #6c63ff,
+          0 0 36px rgba(108, 99, 255, 0.55);
+      }
+
+      /* ── PROGRESS ─────────────────────────────────── */
+      #bar {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        height: 2px;
+        background: linear-gradient(90deg, #6c63ff, #38bdf8, #f472b6);
+        z-index: 1000;
+        transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+        width: 0%;
+      }
+      #scl {
+        position: fixed;
+        left: 28px;
+        bottom: 28px;
+        z-index: 500;
+        font-size: 9px;
+        font-weight: 800;
+        letter-spacing: 3px;
+        text-transform: uppercase;
+        color: rgba(108, 99, 255, 0.5);
+        pointer-events: none;
+        transition: opacity 0.4s;
+      }
+
+      /* ── SCROLL HINT ──────────────────────────────── */
+      #hint {
+        position: fixed;
+        bottom: 36px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 500;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 9px;
+        pointer-events: none;
+        transition: opacity 0.6s;
+        animation: flt 2.8s ease-in-out infinite;
+      }
+      @keyframes flt {
+        0%,
+        100% {
+          transform: translateX(-50%) translateY(0);
+        }
+        50% {
+          transform: translateX(-50%) translateY(-12px);
+        }
+      }
+
+      /* ── KEYFRAMES ────────────────────────────────── */
+      @keyframes float {
+        0%,
+        100% {
+          transform: translateY(0);
+        }
+        50% {
+          transform: translateY(-13px);
+        }
+      }
+      @keyframes floatb {
+        0%,
+        100% {
+          transform: translateY(-5px) rotate(0.8deg);
+        }
+        50% {
+          transform: translateY(6px) rotate(-0.8deg);
+        }
+      }
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 0.4;
+          transform: scale(1);
+        }
+        50% {
+          opacity: 1;
+          transform: scale(1.1);
+        }
+      }
+      @keyframes rcw {
+        from {
+          transform: rotate(0);
+        }
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @keyframes rccw {
+        from {
+          transform: rotate(360deg);
+        }
+        to {
+          transform: rotate(0);
+        }
+      }
+      @keyframes fadeup {
+        from {
+          opacity: 0;
+          transform: translateY(28px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      @keyframes glow {
+        0%,
+        100% {
+          box-shadow:
+            0 0 28px rgba(108, 99, 255, 0.5),
+            0 0 56px rgba(108, 99, 255, 0.2);
+        }
+        50% {
+          box-shadow:
+            0 0 56px rgba(108, 99, 255, 0.85),
+            0 0 112px rgba(56, 189, 248, 0.4);
+        }
+      }
+      @keyframes ring {
+        0% {
+          transform: scale(1);
+          opacity: 0.6;
+        }
+        100% {
+          transform: scale(3.2);
+          opacity: 0;
+        }
+      }
+      @keyframes scan {
+        0% {
+          top: -3px;
+          opacity: 0.9;
+        }
+        100% {
+          top: 110%;
+          opacity: 0;
+        }
+      }
+      @keyframes photoIn {
+        0% {
+          clip-path: circle(0% at 50% 50%);
+          opacity: 0;
+        }
+        100% {
+          clip-path: circle(50% at 50% 50%);
+          opacity: 1;
+        }
+      }
+      @keyframes photoglow {
+        0%,
+        100% {
+          box-shadow:
+            0 0 0 0 rgba(108, 99, 255, 0.6),
+            0 0 44px rgba(108, 99, 255, 0.3);
+        }
+        50% {
+          box-shadow:
+            0 0 0 12px rgba(108, 99, 255, 0),
+            0 0 72px rgba(56, 189, 248, 0.45);
+        }
+      }
+      @keyframes tagin {
+        from {
+          opacity: 0;
+          transform: scale(0.78) translateY(12px);
+        }
+        to {
+          opacity: 1;
+          transform: scale(1) translateY(0);
+        }
+      }
+      @keyframes wavein {
+        from {
+          opacity: 0;
+          transform: scale(0.88);
+        }
+        to {
+          opacity: 1;
+          transform: scale(1);
+        }
+      }
+
+      /* ── PHOTO FRAME ──────────────────────────────── */
+      #pf {
+        position: relative;
+        width: 220px;
+        height: 220px;
+        border-radius: 50%;
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 3px solid rgba(108, 99, 255, 0.65);
+        box-shadow:
+          0 0 60px rgba(108, 99, 255, 0.45),
+          0 0 120px rgba(56, 189, 248, 0.18),
+          inset 0 0 30px rgba(108, 99, 255, 0.08);
+        animation:
+          photoIn 0.9s cubic-bezier(0.22, 1, 0.36, 1) 0.3s both,
+          photoglow 3s ease-in-out infinite;
+        cursor: pointer;
+        transition: transform 0.35s ease;
+        background: rgba(108, 99, 255, 0.04);
+      }
+      #pf img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        border-radius: 50%;
+        filter: contrast(1.08) brightness(1.04) saturate(1.08);
+      }
+      #pf:hover {
+        transform: scale(1.06);
+      }
+      #pf .ph {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 7px;
+        color: rgba(108, 99, 255, 0.6);
+        text-align: center;
+        padding: 16px;
+      }
+      #pf .ph span {
+        font-size: 9px;
+        font-weight: 800;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+        line-height: 1.5;
+        color: rgba(108, 99, 255, 0.5);
+      }
+      #pf::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        height: 2px;
+        background: linear-gradient(
+          90deg,
+          transparent,
+          rgba(108, 99, 255, 0.9),
+          rgba(56, 189, 248, 0.7),
+          transparent
+        );
+        animation: scan 3s ease-in-out infinite;
+        pointer-events: none;
+      }
+
+      /* ── FORMS ────────────────────────────────────── */
+      .fld {
+        width: 100%;
+        padding: 13px 17px;
+        border-radius: 14px;
+        border: 1.5px solid rgba(108, 99, 255, 0.22);
+        background: rgba(255, 255, 255, 0.06);
+        color: rgba(220, 215, 255, 0.92);
+        font-size: 14px;
+        outline: none;
+        backdrop-filter: blur(10px);
+        transition:
+          border-color 0.22s,
+          background 0.22s;
+        font-family: inherit;
+      }
+      .fld:focus {
+        border-color: rgba(108, 99, 255, 0.58);
+        background: rgba(255, 255, 255, 0.11);
+      }
+      textarea.fld {
+        resize: vertical;
+        min-height: 106px;
+      }
+      ::placeholder {
+        color: rgba(150, 140, 210, 0.3);
+      }
+
+      /* ── TRANSITION FLASH ─────────────────────────── */
+      #flash {
+        position: fixed;
+        inset: 0;
+        z-index: 900;
+        pointer-events: none;
+        opacity: 0;
+        background: radial-gradient(
+          ellipse at center,
+          rgba(108, 99, 255, 0.22) 0%,
+          rgba(4, 2, 15, 0) 70%
+        );
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+    <div id="flash"></div>
+    <div id="bar"></div>
+    <div id="scl">SCENE 01 / 07</div>
+    <div id="hint" style="opacity: 0.55">
+      <span
+        style="
+          font-size: 9px;
+          font-weight: 800;
+          color: rgba(108, 99, 255, 0.75);
+          letter-spacing: 4px;
+          text-transform: uppercase;
+        "
+        >Scroll to Dive</span
+      >
+      <div
+        style="
+          width: 1px;
+          height: 38px;
+          background: linear-gradient(to bottom, #6c63ff, transparent);
+        "
+      ></div>
+    </div>
+
+    <!-- NAV -->
+    <nav id="nav">
+      <div class="nw on">
+        <span class="nl">Intro</span
+        ><button class="nd on" onclick="go(0)"></button>
+      </div>
+      <div class="nw">
+        <span class="nl">Education</span
+        ><button class="nd" onclick="go(1)"></button>
+      </div>
+      <div class="nw">
+        <span class="nl">Projects</span
+        ><button class="nd" onclick="go(2)"></button>
+      </div>
+      <div class="nw">
+        <span class="nl">AI Universe</span
+        ><button class="nd" onclick="go(3)"></button>
+      </div>
+      <div class="nw">
+        <span class="nl">Skills</span
+        ><button class="nd" onclick="go(4)"></button>
+      </div>
+      <div class="nw">
+        <span class="nl">IEEE</span><button class="nd" onclick="go(5)"></button>
+      </div>
+      <div class="nw">
+        <span class="nl">Contact</span
+        ><button class="nd" onclick="go(6)"></button>
+      </div>
+    </nav>
+
+    <!-- ═══════════ PANELS ═══════════ -->
+
+    <!-- P0 HERO -->
+    <div class="panel show" id="p0">
+      <div
+        style="
+          position: absolute;
+          top: 32%;
+          right: 10%;
+          width: 340px;
+          height: 340px;
+          border-radius: 50%;
+          background: radial-gradient(
+            circle,
+            rgba(108, 99, 255, 0.12) 0%,
+            transparent 65%
+          );
+          animation: pulse 9s ease-in-out infinite;
+          pointer-events: none;
+        "
+      ></div>
+      <div
+        style="
+          position: absolute;
+          bottom: 20%;
+          left: 8%;
+          width: 240px;
+          height: 240px;
+          border-radius: 50%;
+          background: radial-gradient(
+            circle,
+            rgba(56, 189, 248, 0.09) 0%,
+            transparent 65%
+          );
+          animation: pulse 11s ease-in-out infinite 2s;
+          pointer-events: none;
+        "
+      ></div>
+      <!-- orbital rings around photo -->
+      <div
+        style="
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          width: 0;
+          height: 0;
+          pointer-events: none;
+          z-index: 2;
+          transform: translateY(-96px);
+        "
+      >
+        <div
+          style="
+            position: absolute;
+            width: 206px;
+            height: 206px;
+            top: -103px;
+            left: -103px;
+            border-radius: 50%;
+            border: 1px solid rgba(108, 99, 255, 0.2);
+            animation: rcw 14s linear infinite;
+          "
+        ></div>
+        <div
+          style="
+            position: absolute;
+            width: 308px;
+            height: 308px;
+            top: -154px;
+            left: -154px;
+            border-radius: 50%;
+            border: 1px solid rgba(56, 189, 248, 0.1);
+            animation: rccw 22s linear infinite;
+          "
+        ></div>
+        <div
+          style="
+            position: absolute;
+            width: 424px;
+            height: 424px;
+            top: -212px;
+            left: -212px;
+            border-radius: 50%;
+            border: 1px solid rgba(244, 114, 182, 0.06);
+            animation: rcw 32s linear infinite;
+          "
+        ></div>
+        <div
+          style="
+            position: absolute;
+            width: 308px;
+            height: 308px;
+            top: -154px;
+            left: -154px;
+            animation: rcw 9s linear infinite;
+          "
+        >
+          <div
+            style="
+              position: absolute;
+              top: 0;
+              left: 50%;
+              width: 9px;
+              height: 9px;
+              margin-left: -4.5px;
+              border-radius: 50%;
+              background: #6c63ff;
+              box-shadow:
+                0 0 14px #6c63ff,
+                0 0 28px rgba(108, 99, 255, 0.7);
+            "
+          ></div>
+        </div>
+        <div
+          style="
+            position: absolute;
+            width: 424px;
+            height: 424px;
+            top: -212px;
+            left: -212px;
+            animation: rccw 13s linear infinite;
+          "
+        >
+          <div
+            style="
+              position: absolute;
+              top: 0;
+              left: 50%;
+              width: 7px;
+              height: 7px;
+              margin-left: -3.5px;
+              border-radius: 50%;
+              background: #38bdf8;
+              box-shadow:
+                0 0 12px #38bdf8,
+                0 0 24px rgba(56, 189, 248, 0.6);
+            "
+          ></div>
+        </div>
+        <div
+          style="
+            position: absolute;
+            width: 206px;
+            height: 206px;
+            top: -103px;
+            left: -103px;
+            animation: rcw 7s linear infinite;
+          "
+        >
+          <div
+            style="
+              position: absolute;
+              top: 0;
+              left: 50%;
+              width: 6px;
+              height: 6px;
+              margin-left: -3px;
+              border-radius: 50%;
+              background: #f472b6;
+              box-shadow:
+                0 0 10px #f472b6,
+                0 0 20px rgba(244, 114, 182, 0.6);
+            "
+          ></div>
+        </div>
+      </div>
+      <div
+        style="
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          z-index: 10;
+          padding: 0 24px;
+          max-width: 700px;
+          text-align: center;
+        "
+      >
+        <div id="pf" style="margin-bottom: 30px">
+          <!-- TO ADD YOUR PHOTO: replace the placeholder div below with: <img src="YOUR_PHOTO.jpg" alt="Karim Thabet"> -->
+          <div class="ph">
+            <img src="me.jpg" alt="Karim Thabet" />
+          </div>
+        </div>
+        <h1
+          style="
+            font-size: clamp(52px, 8.5vw, 98px);
+            font-weight: 900;
+            letter-spacing: -3.5px;
+            line-height: 0.94;
+            background: linear-gradient(
+              135deg,
+              rgba(210, 205, 255, 1) 0%,
+              #a78bfa 40%,
+              #38bdf8 75%,
+              #f472b6 100%
+            );
+            background-size: 200% 200%;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            animation: shimmer 5s ease infinite;
+          "
+        >
+          Karim<br />Thabet
+        </h1>
+        <div
+          style="
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-top: 22px;
+          "
+        >
+          <span
+            style="
+              padding: 6px 18px;
+              border-radius: 100px;
+              background: rgba(108, 99, 255, 0.14);
+              color: rgba(180, 170, 255, 0.92);
+              font-size: 13px;
+              font-weight: 800;
+              border: 1px solid rgba(108, 99, 255, 0.34);
+              animation: tagin 0.55s ease 0.3s both;
+            "
+            >Software Engineer</span
+          >
+          <span
+            style="
+              padding: 6px 18px;
+              border-radius: 100px;
+              background: rgba(56, 189, 248, 0.1);
+              color: rgba(56, 189, 248, 0.9);
+              font-size: 13px;
+              font-weight: 800;
+              border: 1px solid rgba(56, 189, 248, 0.28);
+              animation: tagin 0.55s ease 0.48s both;
+            "
+            >AI Developer</span
+          >
+          <span
+            style="
+              padding: 6px 18px;
+              border-radius: 100px;
+              background: rgba(244, 114, 182, 0.1);
+              color: rgba(244, 114, 182, 0.9);
+              font-size: 13px;
+              font-weight: 800;
+              border: 1px solid rgba(244, 114, 182, 0.28);
+              animation: tagin 0.55s ease 0.66s both;
+            "
+            >IEEE Chair</span
+          >
+        </div>
+        <p
+          style="
+            margin-top: 20px;
+            color: rgba(180, 170, 230, 0.46);
+            font-size: 15.5px;
+            line-height: 1.76;
+            max-width: 480px;
+            animation: fadeup 0.7s ease 0.9s both;
+          "
+        >
+          Building intelligent systems at the intersection of AI and full-stack
+          development — turning ambitious ideas into scalable, elegant
+          solutions.
+        </p>
+        <div
+          class="gs"
+          style="
+            display: inline-flex;
+            align-items: center;
+            gap: 22px;
+            padding: 20px 28px;
+            margin-top: 30px;
+            flex-wrap: wrap;
+            justify-content: center;
+            animation: fadeup 0.6s ease 1.1s both;
+          "
+        >
+          <div style="text-align: left">
+            <div
+              style="
+                font-size: 9px;
+                font-weight: 800;
+                color: rgba(108, 99, 255, 0.65);
+                letter-spacing: 3px;
+                text-transform: uppercase;
+                margin-bottom: 4px;
+              "
+            >
+              Resume / CV
+            </div>
+            <div
+              style="
+                font-size: 15px;
+                font-weight: 900;
+                color: rgba(220, 215, 255, 0.95);
+              "
+            >
+              Karim Thabet
+            </div>
+            <div
+              style="
+                font-size: 12px;
+                color: rgba(140, 130, 200, 0.48);
+                margin-top: 1px;
+              "
+            >
+              AI & Full-Stack Engineer
+            </div>
+          </div>
+          <div style="display: flex; gap: 10px; flex-wrap: wrap">
+            <button
+              class="bp"
+              onclick="dlcv(event)"
+              style="font-size: 13px; padding: 11px 22px"
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+              >
+                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" /></svg
+              >Download CV
+            </button>
+            <button
+              class="bg"
+              onclick="go(6)"
+              style="font-size: 13px; padding: 11px 20px"
+            >
+              Contact →
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- P1 EDUCATION -->
+    <div class="panel hide-dn" id="p1">
+      <div
+        style="
+          position: absolute;
+          top: 12%;
+          right: -7%;
+          width: 500px;
+          height: 500px;
+          border-radius: 50%;
+          background: radial-gradient(
+            circle,
+            rgba(56, 189, 248, 0.08) 0%,
+            transparent 60%
+          );
+          animation: pulse 10s ease-in-out infinite;
+          pointer-events: none;
+        "
+      ></div>
+      <div style="width: 100%; max-width: 920px; padding: 0 24px; z-index: 10">
+        <div style="text-align: center; margin-bottom: 50px">
+          <span class="lbl" style="color: rgba(56, 189, 248, 0.75)"
+            >Academic Journey</span
+          >
+          <h2
+            style="
+              font-size: clamp(38px, 5.5vw, 68px);
+              font-weight: 900;
+              letter-spacing: -2.5px;
+            "
+          >
+            <span
+              style="
+                background: linear-gradient(
+                  135deg,
+                  rgba(210, 205, 255, 0.95),
+                  #38bdf8,
+                  #a78bfa
+                );
+                background-size: 200%;
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                background-clip: text;
+                animation: shimmer 5s ease infinite;
+              "
+              >Education Universe</span
+            >
+          </h2>
+          <p
+            style="
+              color: rgba(160, 150, 220, 0.38);
+              font-size: 15px;
+              margin-top: 11px;
+            "
+          >
+            Two institutions — one unified vision.
+          </p>
+        </div>
+        <div
+          style="
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 26px;
+          "
+        >
+          <div
+            class="g lift"
+            style="padding: 42px; position: relative; overflow: hidden"
+          >
+            <div
+              style="
+                position: absolute;
+                top: -52px;
+                right: -52px;
+                width: 195px;
+                height: 195px;
+                border-radius: 50%;
+                background: radial-gradient(
+                  circle,
+                  rgba(108, 99, 255, 0.17) 0%,
+                  transparent 70%
+                );
+              "
+            ></div>
+            <div
+              style="
+                position: absolute;
+                top: -52px;
+                right: -52px;
+                width: 195px;
+                height: 195px;
+                border-radius: 50%;
+                border: 1px solid rgba(108, 99, 255, 0.12);
+                animation: rcw 22s linear infinite;
+              "
+            ></div>
+            <div
+              style="
+                font-size: 50px;
+                margin-bottom: 18px;
+                animation: float 3.2s ease-in-out infinite;
+                display: inline-block;
+              "
+            >
+              🎓
+            </div>
+            <div
+              style="
+                font-size: 9px;
+                font-weight: 800;
+                letter-spacing: 3px;
+                color: rgba(108, 99, 255, 0.75);
+                text-transform: uppercase;
+                margin-bottom: 7px;
+              "
+            >
+              2024 — 2027
+            </div>
+            <h3
+              style="
+                font-size: 27px;
+                font-weight: 900;
+                color: rgba(220, 215, 255, 0.95);
+                margin-bottom: 8px;
+                line-height: 1.15;
+              "
+            >
+              EPI Digital<br />School
+            </h3>
+            <p
+              style="
+                color: rgba(160, 150, 220, 0.62);
+                font-weight: 600;
+                margin-bottom: 15px;
+                font-size: 14.5px;
+              "
+            >
+              Software Engineering
+            </p>
+            <div
+              style="
+                display: flex;
+                flex-wrap: wrap;
+                gap: 7px;
+                margin-bottom: 17px;
+              "
+            >
+              <span
+                class="tag"
+                style="
+                  background: rgba(108, 99, 255, 0.1);
+                  color: rgba(167, 139, 250, 0.9);
+                  border-color: rgba(108, 99, 255, 0.26);
+                "
+                >Full-Stack Dev</span
+              >
+              <span
+                class="tag"
+                style="
+                  background: rgba(56, 189, 248, 0.08);
+                  color: rgba(56, 189, 248, 0.85);
+                  border-color: rgba(56, 189, 248, 0.22);
+                "
+                >AI Systems</span
+              >
+            </div>
+            <p
+              style="
+                color: rgba(140, 130, 200, 0.46);
+                font-size: 13.5px;
+                line-height: 1.72;
+              "
+            >
+              Comprehensive engineering curriculum with deep specialization in
+              artificial intelligence, cloud architecture, and modern full-stack
+              frameworks,Building strong communication, team collaboration, and
+              leadership skills.
+            </p>
+            <div
+              style="
+                position: absolute;
+                bottom: 0;
+                left: 0;
+                height: 3px;
+                width: 100%;
+                background: linear-gradient(
+                  90deg,
+                  #6c63ff,
+                  #38bdf8,
+                  transparent
+                );
+              "
+            ></div>
+          </div>
+          <div
+            class="g lift"
+            style="padding: 42px; position: relative; overflow: hidden"
+          >
+            <div
+              style="
+                position: absolute;
+                top: -52px;
+                right: -52px;
+                width: 195px;
+                height: 195px;
+                border-radius: 50%;
+                background: radial-gradient(
+                  circle,
+                  rgba(56, 189, 248, 0.15) 0%,
+                  transparent 70%
+                );
+              "
+            ></div>
+            <div
+              style="
+                position: absolute;
+                top: -52px;
+                right: -52px;
+                width: 195px;
+                height: 195px;
+                border-radius: 50%;
+                border: 1px solid rgba(56, 189, 248, 0.1);
+                animation: rccw 26s linear infinite;
+              "
+            ></div>
+            <div
+              style="
+                font-size: 50px;
+                margin-bottom: 18px;
+                animation: float 3.8s ease-in-out infinite 0.4s;
+                display: inline-block;
+              "
+            >
+              🏛
+            </div>
+            <div
+              style="
+                font-size: 9px;
+                font-weight: 800;
+                letter-spacing: 3px;
+                color: rgba(56, 189, 248, 0.75);
+                text-transform: uppercase;
+                margin-bottom: 7px;
+              "
+            >
+              2022 — 2024
+            </div>
+            <h3
+              style="
+                font-size: 27px;
+                font-weight: 900;
+                color: rgba(220, 215, 255, 0.95);
+                margin-bottom: 8px;
+                line-height: 1.15;
+              "
+            >
+              ISIMS
+            </h3>
+            <p
+              style="
+                color: rgba(160, 150, 220, 0.62);
+                font-weight: 600;
+                margin-bottom: 15px;
+                font-size: 14.5px;
+              "
+            >
+              Integrated Preparatory Cycle
+            </p>
+            <div
+              style="
+                display: flex;
+                flex-wrap: wrap;
+                gap: 7px;
+                margin-bottom: 17px;
+              "
+            >
+              <span
+                class="tag"
+                style="
+                  background: rgba(244, 114, 182, 0.1);
+                  color: rgba(244, 114, 182, 0.88);
+                  border-color: rgba(244, 114, 182, 0.23);
+                "
+                >Web Development</span
+              >
+              <span
+                class="tag"
+                style="
+                  background: rgba(167, 139, 250, 0.1);
+                  color: rgba(167, 139, 250, 0.88);
+                  border-color: rgba(167, 139, 250, 0.25);
+                "
+                >Python</span
+              >
+            </div>
+            <p
+              style="
+                color: rgba(140, 130, 200, 0.46);
+                font-size: 13.5px;
+                line-height: 1.72;
+              "
+            >
+              Mastering the foundational principles of computer science and
+              advanced mathematics. Developing robust problem-solving
+              methodologies and cross-function adaptability.
+            </p>
+            <div
+              style="
+                position: absolute;
+                bottom: 0;
+                left: 0;
+                height: 3px;
+                width: 100%;
+                background: linear-gradient(
+                  90deg,
+                  #38bdf8,
+                  #a78bfa,
+                  transparent
+                );
+              "
+            ></div>
+          </div>
+        </div>
+        <div style="margin-top: 28px; text-align: center">
+          <div
+            style="
+              display: inline-flex;
+              align-items: center;
+              gap: 14px;
+              padding: 12px 26px;
+              border-radius: 100px;
+              background: rgba(255, 255, 255, 0.05);
+              backdrop-filter: blur(14px);
+              border: 1px solid rgba(108, 99, 255, 0.17);
+            "
+          >
+            <div
+              style="
+                width: 32px;
+                height: 32px;
+                border-radius: 50%;
+                background: linear-gradient(135deg, #6c63ff, #38bdf8);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 16px;
+              "
+            >
+              ⚡
+            </div>
+            <span
+              style="
+                color: rgba(160, 150, 220, 0.6);
+                font-size: 14px;
+                font-weight: 600;
+              "
+              >Dual — Software Engineering
+              <span style="color: #a78bfa; font-weight: 900">+</span> Artificial
+              Intelligence</span
+            >
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- P2 FULLSTACK -->
+    <div class="panel hide-dn" id="p2">
+      <div
+        style="
+          position: absolute;
+          top: 22%;
+          left: -8%;
+          width: 480px;
+          height: 480px;
+          border-radius: 50%;
+          background: radial-gradient(
+            circle,
+            rgba(108, 99, 255, 0.08) 0%,
+            transparent 65%
+          );
+          animation: pulse 8s ease-in-out infinite;
+          pointer-events: none;
+        "
+      ></div>
+      <div style="width: 100%; max-width: 980px; padding: 0 24px; z-index: 10">
+        <div style="text-align: center; margin-bottom: 44px">
+          <span class="lbl" style="color: rgba(56, 189, 248, 0.72)"
+            >Full-Stack Engineering</span
+          >
+          <h2
+            style="
+              font-size: clamp(38px, 5.5vw, 68px);
+              font-weight: 900;
+              letter-spacing: -2.5px;
+            "
+          >
+            <span
+              style="
+                background: linear-gradient(
+                  135deg,
+                  rgba(210, 205, 255, 0.95),
+                  #38bdf8
+                );
+                background-size: 200%;
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                background-clip: text;
+                animation: shimmer 5s ease infinite;
+              "
+              >Project Dimensions</span
+            >
+          </h2>
+        </div>
+        <div
+          style="
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+            gap: 24px;
+          "
+        >
+          <div
+            class="g"
+            id="pf1"
+            onclick="tfs(1)"
+            style="
+              overflow: hidden;
+              cursor: pointer;
+              transition: all 0.44s cubic-bezier(0.34, 1.56, 0.64, 1);
+            "
+          >
+            <div
+              style="
+                height: 190px;
+                background: linear-gradient(135deg, #667eea, #764ba2);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 76px;
+                position: relative;
+                overflow: hidden;
+              "
+            >
+              <span
+                style="
+                  animation: float 3.2s ease-in-out infinite;
+                  display: inline-block;
+                  filter: drop-shadow(0 6px 22px rgba(0, 0, 0, 0.3));
+                "
+                >🛒</span
+              >
+              <div
+                style="
+                  position: absolute;
+                  inset: 0;
+                  background: linear-gradient(
+                    to top,
+                    rgba(255, 255, 255, 0.09) 0%,
+                    transparent 55%
+                  );
+                "
+              ></div>
+              <div
+                style="
+                  position: absolute;
+                  left: 0;
+                  right: 0;
+                  height: 2px;
+                  background: linear-gradient(
+                    90deg,
+                    transparent,
+                    rgba(255, 255, 255, 0.8),
+                    transparent
+                  );
+                  animation: scan 3.8s ease-in-out infinite;
+                "
+              ></div>
+              <div
+                style="
+                  position: absolute;
+                  top: 12px;
+                  right: 14px;
+                  padding: 4px 11px;
+                  border-radius: 100px;
+                  background: rgba(255, 255, 255, 0.17);
+                  font-size: 9px;
+                  font-weight: 800;
+                  color: white;
+                  letter-spacing: 1px;
+                  backdrop-filter: blur(8px);
+                "
+              >
+                FULL-STACK
+              </div>
+            </div>
+            <div style="padding: 28px">
+              <h3
+                style="
+                  font-size: 21px;
+                  font-weight: 900;
+                  color: rgba(220, 215, 255, 0.95);
+                  margin-bottom: 9px;
+                "
+              >
+                E-Commerce Platform
+              </h3>
+              <p
+                style="
+                  color: rgba(150, 140, 210, 0.52);
+                  font-size: 13.5px;
+                  line-height: 1.7;
+                "
+                id="s1t"
+              >
+                Full-featured e-commerce with real-time inventory, Stripe
+                payments, and analytics…
+              </p>
+              <div id="s1e" style="display: none; animation: fadeup 0.3s ease">
+                <p
+                  style="
+                    color: rgba(170, 160, 230, 0.65);
+                    font-size: 13px;
+                    line-height: 1.72;
+                    margin-bottom: 15px;
+                  "
+                >
+                  Full-featured e-commerce solution with real-time inventory
+                  management, Stripe payment integration, admin analytics
+                  dashboard, and AWS deployment.
+                </p>
+                <div
+                  style="
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 5px;
+                    margin-bottom: 14px;
+                  "
+                >
+                  <span
+                    class="tag"
+                    style="
+                      background: rgba(97, 218, 251, 0.09);
+                      color: rgba(97, 218, 251, 0.88);
+                      border-color: rgba(97, 218, 251, 0.22);
+                      font-size: 11px;
+                    "
+                    >React</span
+                  ><span
+                    class="tag"
+                    style="
+                      background: rgba(104, 160, 99, 0.09);
+                      color: rgba(104, 160, 99, 0.88);
+                      border-color: rgba(104, 160, 99, 0.22);
+                      font-size: 11px;
+                    "
+                    >Node.js</span
+                  ><span
+                    class="tag"
+                    style="
+                      background: rgba(71, 162, 72, 0.09);
+                      color: rgba(71, 162, 72, 0.88);
+                      border-color: rgba(71, 162, 72, 0.22);
+                      font-size: 11px;
+                    "
+                    >MongoDB</span
+                  ><span
+                    class="tag"
+                    style="
+                      background: rgba(99, 102, 241, 0.09);
+                      color: rgba(162, 155, 254, 0.88);
+                      border-color: rgba(99, 102, 241, 0.22);
+                      font-size: 11px;
+                    "
+                    >Stripe</span
+                  ><span
+                    class="tag"
+                    style="
+                      background: rgba(255, 153, 0, 0.09);
+                      color: rgba(255, 153, 0, 0.88);
+                      border-color: rgba(255, 153, 0, 0.22);
+                      font-size: 11px;
+                    "
+                    >AWS</span
+                  >
+                </div>
+                <a
+                  href="https://github.com/Karim1412"
+                  target="_blank"
+                  class="bsm"
+                  >🔗 GitHub</a
+                >
+              </div>
+              <p
+                style="
+                  margin-top: 11px;
+                  color: rgba(108, 99, 255, 0.38);
+                  font-size: 10px;
+                  font-weight: 800;
+                  letter-spacing: 1px;
+                "
+                id="s1c"
+              >
+                ▼ EXPLORE
+              </p>
+            </div>
+          </div>
+          <div
+            class="g"
+            id="pf2"
+            onclick="tfs(2)"
+            style="
+              overflow: hidden;
+              cursor: pointer;
+              transition: all 0.44s cubic-bezier(0.34, 1.56, 0.64, 1);
+            "
+          >
+            <div
+              style="
+                height: 190px;
+                background: linear-gradient(135deg, #f093fb, #f5576c);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 76px;
+                position: relative;
+                overflow: hidden;
+              "
+            >
+              <span
+                style="
+                  animation: float 3.6s ease-in-out infinite 0.4s;
+                  display: inline-block;
+                  filter: drop-shadow(0 6px 22px rgba(0, 0, 0, 0.3));
+                "
+                >🧠</span
+              >
+              <div
+                style="
+                  position: absolute;
+                  inset: 0;
+                  background: linear-gradient(
+                    to top,
+                    rgba(255, 255, 255, 0.09) 0%,
+                    transparent 55%
+                  );
+                "
+              ></div>
+              <div
+                style="
+                  position: absolute;
+                  left: 0;
+                  right: 0;
+                  height: 2px;
+                  background: linear-gradient(
+                    90deg,
+                    transparent,
+                    rgba(255, 255, 255, 0.8),
+                    transparent
+                  );
+                  animation: scan 4.2s ease-in-out infinite 0.8s;
+                "
+              ></div>
+              <div
+                style="
+                  position: absolute;
+                  top: 12px;
+                  right: 14px;
+                  padding: 4px 11px;
+                  border-radius: 100px;
+                  background: rgba(255, 255, 255, 0.17);
+                  font-size: 9px;
+                  font-weight: 800;
+                  color: white;
+                  letter-spacing: 1px;
+                  backdrop-filter: blur(8px);
+                "
+              >
+                REAL-TIME
+              </div>
+            </div>
+            <div style="padding: 28px">
+              <h3
+                style="
+                  font-size: 21px;
+                  font-weight: 900;
+                  color: rgba(220, 215, 255, 0.95);
+                  margin-bottom: 9px;
+                "
+              >
+                Quiz Platform
+              </h3>
+              <p
+                style="
+                  color: rgba(150, 140, 210, 0.52);
+                  font-size: 13.5px;
+                  line-height: 1.7;
+                "
+                id="s2t"
+              >
+                Real-time multiplayer quiz with adaptive learning and AI
+                question generation…
+              </p>
+              <div id="s2e" style="display: none; animation: fadeup 0.3s ease">
+                <p
+                  style="
+                    color: rgba(170, 160, 230, 0.65);
+                    font-size: 13px;
+                    line-height: 1.72;
+                    margin-bottom: 15px;
+                  "
+                >
+                  Real-time multiplayer quiz platform featuring adaptive
+                  learning, live leaderboards, AI-powered question generation,
+                  and WebSocket synchronization.
+                </p>
+                <div
+                  style="
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 5px;
+                    margin-bottom: 14px;
+                  "
+                >
+                  <span
+                    class="tag"
+                    style="
+                      background: rgba(221, 0, 49, 0.07);
+                      color: rgba(255, 100, 130, 0.88);
+                      border-color: rgba(221, 0, 49, 0.2);
+                      font-size: 11px;
+                    "
+                    >Node JS</span
+                  ><span
+                    class="tag"
+                    style="
+                      background: rgba(109, 179, 63, 0.09);
+                      color: rgba(109, 179, 63, 0.88);
+                      border-color: rgba(109, 179, 63, 0.22);
+                      font-size: 11px;
+                    "
+                    >React</span
+                  ><span
+                    class="tag"
+                    style="
+                      background: rgba(255, 202, 40, 0.09);
+                      color: rgba(255, 202, 40, 0.88);
+                      border-color: rgba(255, 202, 40, 0.25);
+                      font-size: 11px;
+                    "
+                    >Mongo DB</span
+                  ><span
+                    class="tag"
+                    style="
+                      background: rgba(108, 99, 255, 0.1);
+                      color: rgba(162, 155, 254, 0.88);
+                      border-color: rgba(108, 99, 255, 0.25);
+                      font-size: 11px;
+                    "
+                    >Express</span
+                  >
+                </div>
+                <a
+                  href="https://github.com/Karim1412"
+                  target="_blank"
+                  class="bsm"
+                  >🔗 GitHub</a
+                >
+              </div>
+              <p
+                style="
+                  margin-top: 11px;
+                  color: rgba(108, 99, 255, 0.38);
+                  font-size: 10px;
+                  font-weight: 800;
+                  letter-spacing: 1px;
+                "
+                id="s2c"
+              >
+                ▼ EXPLORE
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- P3 AI -->
+    <div class="panel hide-dn" id="p3">
+      <svg
+        style="
+          position: absolute;
+          inset: 0;
+          width: 100%;
+          height: 100%;
+          opacity: 0.04;
+          pointer-events: none;
+        "
+        viewBox="0 0 1200 700"
+        preserveAspectRatio="xMidYMid slice"
+      >
+        <g stroke="#f472b6" stroke-width=".7" fill="none">
+          <line x1="80" y1="180" x2="360" y2="130" />
+          <line x1="80" y1="350" x2="360" y2="270" />
+          <line x1="80" y1="520" x2="360" y2="420" />
+          <line x1="360" y1="130" x2="640" y2="180" />
+          <line x1="360" y1="270" x2="640" y2="130" />
+          <line x1="360" y1="420" x2="640" y2="320" />
+          <line x1="360" y1="130" x2="640" y2="320" />
+          <line x1="360" y1="270" x2="640" y2="480" />
+          <line x1="360" y1="420" x2="640" y2="180" />
+          <line x1="640" y1="180" x2="920" y2="230" />
+          <line x1="640" y1="320" x2="920" y2="320" />
+          <line x1="640" y1="480" x2="920" y2="420" />
+          <circle cx="80" cy="180" r="5" fill="rgba(244,114,182,.4)" />
+          <circle cx="80" cy="350" r="5" fill="rgba(244,114,182,.4)" />
+          <circle cx="80" cy="520" r="5" fill="rgba(244,114,182,.4)" />
+          <circle cx="360" cy="130" r="5" fill="rgba(108,99,255,.4)" />
+          <circle cx="360" cy="270" r="5" fill="rgba(108,99,255,.4)" />
+          <circle cx="360" cy="420" r="5" fill="rgba(108,99,255,.4)" />
+          <circle cx="640" cy="180" r="5" fill="rgba(56,189,248,.4)" />
+          <circle cx="640" cy="320" r="5" fill="rgba(56,189,248,.4)" />
+          <circle cx="640" cy="480" r="5" fill="rgba(56,189,248,.4)" />
+          <circle cx="920" cy="230" r="5" fill="rgba(167,139,250,.4)" />
+          <circle cx="920" cy="320" r="5" fill="rgba(167,139,250,.4)" />
+          <circle cx="920" cy="420" r="5" fill="rgba(167,139,250,.4)" />
+        </g>
+      </svg>
+      <div style="width: 100%; max-width: 1040px; padding: 0 24px; z-index: 10">
+        <div style="text-align: center; margin-bottom: 38px">
+          <span class="lbl" style="color: rgba(244, 114, 182, 0.8)"
+            >Artificial Intelligence</span
+          >
+          <h2
+            style="
+              font-size: clamp(38px, 5.5vw, 68px);
+              font-weight: 900;
+              letter-spacing: -2.5px;
+            "
+          >
+            <span
+              style="
+                background: linear-gradient(
+                  135deg,
+                  rgba(210, 205, 255, 0.95),
+                  #f472b6,
+                  #a78bfa
+                );
+                background-size: 200%;
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                background-clip: text;
+                animation: shimmer 5s ease infinite;
+              "
+              >AI Universe</span
+            >
+          </h2>
+        </div>
+        <div
+          style="
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(222px, 1fr));
+            gap: 15px;
+          "
+        >
+          <div
+            class="g"
+            id="a1"
+            onclick="tai(1)"
+            style="
+              padding: 25px;
+              cursor: pointer;
+              position: relative;
+              overflow: hidden;
+              transition: all 0.44s cubic-bezier(0.34, 1.56, 0.64, 1);
+            "
+          >
+            <div
+              style="
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                height: 3px;
+                background: linear-gradient(135deg, #f5576c, #f093fb);
+              "
+            ></div>
+            <div
+              style="
+                position: absolute;
+                top: -25px;
+                right: -25px;
+                width: 95px;
+                height: 95px;
+                border-radius: 50%;
+                background: radial-gradient(
+                  circle,
+                  rgba(245, 87, 108, 0.2) 0%,
+                  transparent 70%
+                );
+                animation: pulse 4s ease-in-out infinite;
+              "
+            ></div>
+            <div
+              style="
+                font-size: 40px;
+                margin-bottom: 12px;
+                animation: floatb 4s ease-in-out infinite;
+                display: inline-block;
+              "
+            >
+              ⚔️
+            </div>
+            <h3
+              style="
+                font-size: 15px;
+                font-weight: 900;
+                color: rgba(220, 215, 255, 0.95);
+                margin-bottom: 8px;
+                line-height: 1.3;
+              "
+            >
+              AI Battle
+            </h3>
+            <p
+              style="
+                color: rgba(150, 140, 210, 0.5);
+                font-size: 12px;
+                line-height: 1.65;
+              "
+              id="a1t"
+            >
+              Multi-agent RL arena — autonomous agents compete in strategic
+              simulations…
+            </p>
+            <div id="a1e" style="display: none; animation: fadeup 0.3s ease">
+              <p
+                style="
+                  color: rgba(170, 160, 230, 0.62);
+                  font-size: 12px;
+                  line-height: 1.68;
+                  margin-bottom: 10px;
+                "
+              >
+                Multi-agent RL with PPO and DQN algorithms, built with PyTorch
+                and custom reward environments.
+              </p>
+              <div
+                style="
+                  display: flex;
+                  flex-wrap: wrap;
+                  gap: 4px;
+                  margin-bottom: 10px;
+                "
+              >
+                <span
+                  class="tag"
+                  style="
+                    background: rgba(245, 87, 108, 0.09);
+                    color: rgba(245, 87, 108, 0.88);
+                    border-color: rgba(245, 87, 108, 0.22);
+                    font-size: 10px;
+                  "
+                  >Python</span
+                ><span
+                  class="tag"
+                  style="
+                    background: rgba(245, 87, 108, 0.09);
+                    color: rgba(245, 87, 108, 0.88);
+                    border-color: rgba(245, 87, 108, 0.22);
+                    font-size: 10px;
+                  "
+                  >PyTorch</span
+                ><span
+                  class="tag"
+                  style="
+                    background: rgba(245, 87, 108, 0.09);
+                    color: rgba(245, 87, 108, 0.88);
+                    border-color: rgba(245, 87, 108, 0.22);
+                    font-size: 10px;
+                  "
+                  >Flask</span
+                ><span
+                  class="tag"
+                  style="
+                    background: rgba(245, 87, 108, 0.09);
+                    color: rgba(245, 87, 108, 0.88);
+                    border-color: rgba(245, 87, 108, 0.22);
+                    font-size: 10px;
+                  "
+                  >RL/DQN</span
+                >
+              </div>
+              <a
+                href="https://github.com/Karim1412"
+                target="_blank"
+                class="bsm"
+                style="font-size: 11px; padding: 5px 13px"
+                >🔗 GitHub</a
+              >
+            </div>
+            <p
+              style="
+                margin-top: 8px;
+                color: rgba(245, 87, 108, 0.42);
+                font-size: 9px;
+                font-weight: 800;
+                letter-spacing: 1px;
+              "
+              id="a1c"
+            >
+              ▼ EXPLORE
+            </p>
+          </div>
+          <div
+            class="g"
+            id="a2"
+            onclick="tai(2)"
+            style="
+              padding: 25px;
+              cursor: pointer;
+              position: relative;
+              overflow: hidden;
+              transition: all 0.44s cubic-bezier(0.34, 1.56, 0.64, 1);
+            "
+          >
+            <div
+              style="
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                height: 3px;
+                background: linear-gradient(135deg, #f7971e, #ffd200);
+              "
+            ></div>
+            <div
+              style="
+                position: absolute;
+                top: -25px;
+                right: -25px;
+                width: 95px;
+                height: 95px;
+                border-radius: 50%;
+                background: radial-gradient(
+                  circle,
+                  rgba(247, 151, 30, 0.17) 0%,
+                  transparent 70%
+                );
+                animation: pulse 5s ease-in-out infinite 0.8s;
+              "
+            ></div>
+            <div
+              style="
+                font-size: 40px;
+                margin-bottom: 12px;
+                animation: floatb 4.4s ease-in-out infinite 0.4s;
+                display: inline-block;
+              "
+            >
+              🎻
+            </div>
+            <h3
+              style="
+                font-size: 15px;
+                font-weight: 900;
+                color: rgba(220, 215, 255, 0.95);
+                margin-bottom: 8px;
+                line-height: 1.3;
+              "
+            >
+              ARCO — Violin to Sheet
+            </h3>
+            <p
+              style="
+                color: rgba(150, 140, 210, 0.5);
+                font-size: 12px;
+                line-height: 1.65;
+              "
+              id="a2t"
+            >
+              DL pipeline converting violin audio into accurate musical notation
+              using CNNs…
+            </p>
+            <div id="a2e" style="display: none; animation: fadeup 0.3s ease">
+              <p
+                style="
+                  color: rgba(170, 160, 230, 0.62);
+                  font-size: 12px;
+                  line-height: 1.68;
+                  margin-bottom: 10px;
+                "
+              >
+                CNN pipeline with Librosa spectrogram analysis and Music21 for
+                notation rendering.
+              </p>
+              <div
+                style="
+                  display: flex;
+                  flex-wrap: wrap;
+                  gap: 4px;
+                  margin-bottom: 10px;
+                "
+              >
+                <span
+                  class="tag"
+                  style="
+                    background: rgba(247, 151, 30, 0.09);
+                    color: rgba(247, 151, 30, 0.88);
+                    border-color: rgba(247, 151, 30, 0.23);
+                    font-size: 10px;
+                  "
+                  >TensorFlow</span
+                ><span
+                  class="tag"
+                  style="
+                    background: rgba(247, 151, 30, 0.09);
+                    color: rgba(247, 151, 30, 0.88);
+                    border-color: rgba(247, 151, 30, 0.23);
+                    font-size: 10px;
+                  "
+                  >Flask</span
+                ><span
+                  class="tag"
+                  style="
+                    background: rgba(247, 151, 30, 0.09);
+                    color: rgba(247, 151, 30, 0.88);
+                    border-color: rgba(247, 151, 30, 0.23);
+                    font-size: 10px;
+                  "
+                  >Librosa</span
+                ><span
+                  class="tag"
+                  style="
+                    background: rgba(247, 151, 30, 0.09);
+                    color: rgba(247, 151, 30, 0.88);
+                    border-color: rgba(247, 151, 30, 0.23);
+                    font-size: 10px;
+                  "
+                  >Music21</span
+                >
+              </div>
+              <a
+                href="https://github.com/Karim1412"
+                target="_blank"
+                class="bsm"
+                style="font-size: 11px; padding: 5px 13px"
+                >🔗 GitHub</a
+              >
+            </div>
+            <p
+              style="
+                margin-top: 8px;
+                color: rgba(247, 151, 30, 0.45);
+                font-size: 9px;
+                font-weight: 800;
+                letter-spacing: 1px;
+              "
+              id="a2c"
+            >
+              ▼ EXPLORE
+            </p>
+          </div>
+          <div
+            class="g"
+            id="a3"
+            onclick="tai(3)"
+            style="
+              padding: 25px;
+              cursor: pointer;
+              position: relative;
+              overflow: hidden;
+              transition: all 0.44s cubic-bezier(0.34, 1.56, 0.64, 1);
+            "
+          >
+            <div
+              style="
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                height: 3px;
+                background: linear-gradient(135deg, #4facfe, #00f2fe);
+              "
+            ></div>
+            <div
+              style="
+                position: absolute;
+                top: -25px;
+                right: -25px;
+                width: 95px;
+                height: 95px;
+                border-radius: 50%;
+                background: radial-gradient(
+                  circle,
+                  rgba(79, 172, 254, 0.17) 0%,
+                  transparent 70%
+                );
+                animation: pulse 4.8s ease-in-out infinite 1.2s;
+              "
+            ></div>
+            <div
+              style="
+                font-size: 40px;
+                margin-bottom: 12px;
+                animation: floatb 3.8s ease-in-out infinite 0.8s;
+                display: inline-block;
+              "
+            >
+              ⚽
+            </div>
+            <h3
+              style="
+                font-size: 15px;
+                font-weight: 900;
+                color: rgba(220, 215, 255, 0.95);
+                margin-bottom: 8px;
+                line-height: 1.3;
+              "
+            >
+              Football Prediction
+            </h3>
+            <p
+              style="
+                color: rgba(150, 140, 210, 0.5);
+                font-size: 12px;
+                line-height: 1.65;
+              "
+              id="a3t"
+            >
+              Ensemble ML model — 80%+ accuracy for match outcome prediction…
+            </p>
+            <div id="a3e" style="display: none; animation: fadeup 0.3s ease">
+              <p
+                style="
+                  color: rgba(170, 160, 230, 0.62);
+                  font-size: 12px;
+                  line-height: 1.68;
+                  margin-bottom: 10px;
+                "
+              >
+                XGBoost ensemble with multi-season historical data and advanced
+                feature engineering pipelines.
+              </p>
+              <div
+                style="
+                  display: flex;
+                  flex-wrap: wrap;
+                  gap: 4px;
+                  margin-bottom: 10px;
+                "
+              >
+                <span
+                  class="tag"
+                  style="
+                    background: rgba(79, 172, 254, 0.09);
+                    color: rgba(79, 172, 254, 0.88);
+                    border-color: rgba(79, 172, 254, 0.22);
+                    font-size: 10px;
+                  "
+                  >XGBoost</span
+                ><span
+                  class="tag"
+                  style="
+                    background: rgba(79, 172, 254, 0.09);
+                    color: rgba(79, 172, 254, 0.88);
+                    border-color: rgba(79, 172, 254, 0.22);
+                    font-size: 10px;
+                  "
+                  >Pandas</span
+                ><span
+                  class="tag"
+                  style="
+                    background: rgba(79, 172, 254, 0.09);
+                    color: rgba(79, 172, 254, 0.88);
+                    border-color: rgba(79, 172, 254, 0.22);
+                    font-size: 10px;
+                  "
+                  >Scikit-learn</span
+                >
+              </div>
+              <a
+                href="https://github.com/Karim1412"
+                target="_blank"
+                class="bsm"
+                style="font-size: 11px; padding: 5px 13px"
+                >🔗 GitHub</a
+              >
+            </div>
+            <p
+              style="
+                margin-top: 8px;
+                color: rgba(79, 172, 254, 0.45);
+                font-size: 9px;
+                font-weight: 800;
+                letter-spacing: 1px;
+              "
+              id="a3c"
+            >
+              ▼ EXPLORE
+            </p>
+          </div>
+          <div
+            class="g"
+            id="a4"
+            onclick="tai(4)"
+            style="
+              padding: 25px;
+              cursor: pointer;
+              position: relative;
+              overflow: hidden;
+              transition: all 0.44s cubic-bezier(0.34, 1.56, 0.64, 1);
+            "
+          >
+            <div
+              style="
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                height: 3px;
+                background: linear-gradient(135deg, #43e97b, #38f9d7);
+              "
+            ></div>
+            <div
+              style="
+                position: absolute;
+                top: -25px;
+                right: -25px;
+                width: 95px;
+                height: 95px;
+                border-radius: 50%;
+                background: radial-gradient(
+                  circle,
+                  rgba(67, 233, 123, 0.17) 0%,
+                  transparent 70%
+                );
+                animation: pulse 5.5s ease-in-out infinite 2s;
+              "
+            ></div>
+            <div
+              style="
+                font-size: 40px;
+                margin-bottom: 12px;
+                animation: floatb 4.2s ease-in-out infinite 1.2s;
+                display: inline-block;
+              "
+            >
+              ✂️
+            </div>
+            <h3
+              style="
+                font-size: 15px;
+                font-weight: 900;
+                color: rgba(220, 215, 255, 0.95);
+                margin-bottom: 8px;
+                line-height: 1.3;
+              "
+            >
+              Scizor RPS vs AI
+            </h3>
+            <p
+              style="
+                color: rgba(150, 140, 210, 0.5);
+                font-size: 12px;
+                line-height: 1.65;
+              "
+              id="a4t"
+            >
+              Real-time CV — MediaPipe hand detection for Rock-Paper-Scissors vs
+              AI mascot…
+            </p>
+            <div id="a4e" style="display: none; animation: fadeup 0.3s ease">
+              <p
+                style="
+                  color: rgba(170, 160, 230, 0.62);
+                  font-size: 12px;
+                  line-height: 1.68;
+                  margin-bottom: 10px;
+                "
+              >
+                MediaPipe hand landmark detection with live prediction
+                confidence and animated AI mascot feedback.
+              </p>
+              <div
+                style="
+                  display: flex;
+                  flex-wrap: wrap;
+                  gap: 4px;
+                  margin-bottom: 10px;
+                "
+              >
+                <span
+                  class="tag"
+                  style="
+                    background: rgba(67, 233, 123, 0.09);
+                    color: rgba(67, 233, 123, 0.88);
+                    border-color: rgba(67, 233, 123, 0.22);
+                    font-size: 10px;
+                  "
+                  >OpenCV</span
+                ><span
+                  class="tag"
+                  style="
+                    background: rgba(67, 233, 123, 0.09);
+                    color: rgba(67, 233, 123, 0.88);
+                    border-color: rgba(67, 233, 123, 0.22);
+                    font-size: 10px;
+                  "
+                  >React</span
+                ><span
+                  class="tag"
+                  style="
+                    background: rgba(67, 233, 123, 0.09);
+                    color: rgba(67, 233, 123, 0.88);
+                    border-color: rgba(67, 233, 123, 0.22);
+                    font-size: 10px;
+                  "
+                  >MediaPipe</span
+                ><span
+                  class="tag"
+                  style="
+                    background: rgba(67, 233, 123, 0.09);
+                    color: rgba(67, 233, 123, 0.88);
+                    border-color: rgba(67, 233, 123, 0.22);
+                    font-size: 10px;
+                  "
+                  >CNN</span
+                >
+              </div>
+              <a
+                href="https://github.com/Karim1412"
+                target="_blank"
+                class="bsm"
+                style="font-size: 11px; padding: 5px 13px"
+                >🔗 GitHub</a
+              >
+            </div>
+            <p
+              style="
+                margin-top: 8px;
+                color: rgba(67, 233, 123, 0.5);
+                font-size: 9px;
+                font-weight: 800;
+                letter-spacing: 1px;
+              "
+              id="a4c"
+            >
+              ▼ EXPLORE
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- P4 SKILLS -->
+    <div class="panel hide-dn" id="p4">
+      <div
+        style="
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          width: 660px;
+          height: 660px;
+          border-radius: 50%;
+          background: radial-gradient(
+            circle,
+            rgba(108, 99, 255, 0.09) 0%,
+            transparent 60%
+          );
+          animation: pulse 10s ease-in-out infinite;
+          pointer-events: none;
+        "
+      ></div>
+      <div style="width: 100%; max-width: 940px; padding: 0 24px; z-index: 10">
+        <div style="text-align: center; margin-bottom: 44px">
+          <span class="lbl" style="color: rgba(167, 139, 250, 0.78)"
+            >Technical Arsenal</span
+          >
+          <h2
+            style="
+              font-size: clamp(38px, 5.5vw, 68px);
+              font-weight: 900;
+              letter-spacing: -2.5px;
+            "
+          >
+            <span
+              style="
+                background: linear-gradient(
+                  135deg,
+                  rgba(210, 205, 255, 0.95),
+                  #a78bfa,
+                  #6c63ff
+                );
+                background-size: 200%;
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                background-clip: text;
+                animation: shimmer 5s ease infinite;
+              "
+              >Skills Galaxy</span
+            >
+          </h2>
+          <p
+            style="
+              color: rgba(160, 150, 220, 0.38);
+              font-size: 15px;
+              margin-top: 10px;
+            "
+          >
+            Hover each node to activate
+          </p>
+        </div>
+        <div
+          id="sg"
+          style="
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+            max-width: 800px;
+            margin: 0 auto;
+          "
+        ></div>
+        <div
+          style="
+            margin-top: 32px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            justify-content: center;
+          "
+        >
+          <div
+            style="
+              display: flex;
+              align-items: center;
+              gap: 5px;
+              padding: 4px 11px;
+              border-radius: 100px;
+              background: rgba(97, 218, 251, 0.06);
+              border: 1px solid rgba(97, 218, 251, 0.17);
+            "
+          >
+            <div
+              style="
+                width: 6px;
+                height: 6px;
+                border-radius: 50%;
+                background: #61dafb;
+              "
+            ></div>
+            <span
+              style="
+                font-size: 11px;
+                color: rgba(160, 150, 220, 0.55);
+                font-weight: 700;
+              "
+              >Frontend</span
+            >
+          </div>
+          <div
+            style="
+              display: flex;
+              align-items: center;
+              gap: 5px;
+              padding: 4px 11px;
+              border-radius: 100px;
+              background: rgba(104, 160, 99, 0.06);
+              border: 1px solid rgba(104, 160, 99, 0.17);
+            "
+          >
+            <div
+              style="
+                width: 6px;
+                height: 6px;
+                border-radius: 50%;
+                background: #68a063;
+              "
+            ></div>
+            <span
+              style="
+                font-size: 11px;
+                color: rgba(160, 150, 220, 0.55);
+                font-weight: 700;
+              "
+              >Backend</span
+            >
+          </div>
+          <div
+            style="
+              display: flex;
+              align-items: center;
+              gap: 5px;
+              padding: 4px 11px;
+              border-radius: 100px;
+              background: rgba(244, 114, 182, 0.06);
+              border: 1px solid rgba(244, 114, 182, 0.17);
+            "
+          >
+            <div
+              style="
+                width: 6px;
+                height: 6px;
+                border-radius: 50%;
+                background: #f472b6;
+              "
+            ></div>
+            <span
+              style="
+                font-size: 11px;
+                color: rgba(160, 150, 220, 0.55);
+                font-weight: 700;
+              "
+              >AI / ML</span
+            >
+          </div>
+          <div
+            style="
+              display: flex;
+              align-items: center;
+              gap: 5px;
+              padding: 4px 11px;
+              border-radius: 100px;
+              background: rgba(255, 153, 0, 0.06);
+              border: 1px solid rgba(255, 153, 0, 0.17);
+            "
+          >
+            <div
+              style="
+                width: 6px;
+                height: 6px;
+                border-radius: 50%;
+                background: #ff9900;
+              "
+            ></div>
+            <span
+              style="
+                font-size: 11px;
+                color: rgba(160, 150, 220, 0.55);
+                font-weight: 700;
+              "
+              >Cloud</span
+            >
+          </div>
+          <div
+            style="
+              display: flex;
+              align-items: center;
+              gap: 5px;
+              padding: 4px 11px;
+              border-radius: 100px;
+              background: rgba(71, 162, 72, 0.06);
+              border: 1px solid rgba(71, 162, 72, 0.17);
+            "
+          >
+            <div
+              style="
+                width: 6px;
+                height: 6px;
+                border-radius: 50%;
+                background: #47a248;
+              "
+            ></div>
+            <span
+              style="
+                font-size: 11px;
+                color: rgba(160, 150, 220, 0.55);
+                font-weight: 700;
+              "
+              >Database</span
+            >
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- P5 IEEE -->
+    <div class="panel hide-dn" id="p5">
+      <div
+        style="
+          position: absolute;
+          top: 14%;
+          left: 3%;
+          width: 380px;
+          height: 380px;
+          border-radius: 50%;
+          background: radial-gradient(
+            circle,
+            rgba(108, 99, 255, 0.09) 0%,
+            transparent 68%
+          );
+          animation: pulse 8s ease-in-out infinite;
+          pointer-events: none;
+        "
+      ></div>
+      <div style="width: 100%; max-width: 980px; padding: 0 24px; z-index: 10">
+        <div style="text-align: center; margin-bottom: 44px">
+          <span class="lbl" style="color: rgba(108, 99, 255, 0.78)"
+            >Leadership & Community</span
+          >
+          <h2
+            style="
+              font-size: clamp(38px, 5.5vw, 68px);
+              font-weight: 900;
+              letter-spacing: -2.5px;
+            "
+          >
+            <span class="grad">IEEE Journey</span>
+          </h2>
+          <p
+            style="
+              color: rgba(160, 150, 220, 0.38);
+              font-size: 15px;
+              margin-top: 10px;
+            "
+          >
+            Building bridges between technology and tomorrow
+          </p>
+        </div>
+        <div
+          style="
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(245px, 1fr));
+            gap: 17px;
+            margin-bottom: 24px;
+          "
+        >
+          <div
+            class="g lift"
+            style="padding: 33px; position: relative; overflow: hidden"
+          >
+            <div
+              style="
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                height: 3px;
+                background: linear-gradient(90deg, #6c63ff, transparent);
+              "
+            ></div>
+            <div
+              style="
+                font-size: 36px;
+                margin-bottom: 14px;
+                animation: float 2.8s ease-in-out infinite;
+                display: inline-block;
+              "
+            >
+              👑
+            </div>
+            <h3
+              style="
+                font-size: 17px;
+                font-weight: 900;
+                color: rgba(220, 215, 255, 0.95);
+                margin-bottom: 9px;
+              "
+            >
+              IEEE EPI SB Chair
+            </h3>
+            <p
+              style="
+                color: rgba(140, 130, 200, 0.5);
+                font-size: 13px;
+                line-height: 1.68;
+              "
+            >
+              Leading the IEEE student branch, orchestrating 20+ technical
+              events and innovation challenges for 300+ engineering students.
+            </p>
+            <div
+              style="
+                position: absolute;
+                bottom: 0;
+                left: 0;
+                height: 3px;
+                width: 100%;
+                background: linear-gradient(90deg, #6c63ff, transparent);
+              "
+            ></div>
+          </div>
+          <div
+            class="g lift"
+            style="padding: 33px; position: relative; overflow: hidden"
+          >
+            <div
+              style="
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                height: 3px;
+                background: linear-gradient(90deg, #38bdf8, transparent);
+              "
+            ></div>
+            <div
+              style="
+                font-size: 36px;
+                margin-bottom: 14px;
+                animation: float 3.4s ease-in-out infinite 0.5s;
+                display: inline-block;
+              "
+            >
+              ⚡
+            </div>
+            <h3
+              style="
+                font-size: 17px;
+                font-weight: 900;
+                color: rgba(220, 215, 255, 0.95);
+                margin-bottom: 9px;
+              "
+            >
+              IEEE Vice Chair
+            </h3>
+            <p
+              style="
+                color: rgba(140, 130, 200, 0.5);
+                font-size: 13px;
+                line-height: 1.68;
+              "
+            >
+              Coordinating cross-committee hackathons and knowledge-sharing
+              sessions connecting students with industry professionals.
+            </p>
+            <div
+              style="
+                position: absolute;
+                bottom: 0;
+                left: 0;
+                height: 3px;
+                width: 100%;
+                background: linear-gradient(90deg, #38bdf8, transparent);
+              "
+            ></div>
+          </div>
+          <div
+            class="g lift"
+            style="padding: 33px; position: relative; overflow: hidden"
+          >
+            <div
+              style="
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                height: 3px;
+                background: linear-gradient(90deg, #f472b6, transparent);
+              "
+            ></div>
+            <div
+              style="
+                font-size: 36px;
+                margin-bottom: 14px;
+                animation: float 4s ease-in-out infinite 1s;
+                display: inline-block;
+              "
+            >
+              📡
+            </div>
+            <h3
+              style="
+                font-size: 17px;
+                font-weight: 900;
+                color: rgba(220, 215, 255, 0.95);
+                margin-bottom: 9px;
+              "
+            >
+              ISIMS Media Manager
+            </h3>
+            <p
+              style="
+                color: rgba(140, 130, 200, 0.5);
+                font-size: 13px;
+                line-height: 1.68;
+              "
+            >
+              Managing digital communications and growing the IEEE ISIMS online
+              presence through strategic visual storytelling.
+            </p>
+            <div
+              style="
+                position: absolute;
+                bottom: 0;
+                left: 0;
+                height: 3px;
+                width: 100%;
+                background: linear-gradient(90deg, #f472b6, transparent);
+              "
+            ></div>
+          </div>
+        </div>
+        <div
+          style="
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+          "
+        >
+          <div
+            style="
+              text-align: center;
+              padding: 18px 10px;
+              background: rgba(255, 255, 255, 0.04);
+              backdrop-filter: blur(14px);
+              border-radius: 15px;
+              border: 1px solid rgba(255, 255, 255, 0.1);
+            "
+          >
+            <div
+              style="
+                font-size: 32px;
+                font-weight: 900;
+                background: linear-gradient(135deg, #6c63ff, #38bdf8);
+                background-size: 200%;
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                background-clip: text;
+                animation: shimmer 4s ease infinite;
+              "
+            >
+              300+
+            </div>
+            <div
+              style="
+                font-size: 10px;
+                color: rgba(140, 130, 200, 0.48);
+                font-weight: 700;
+                margin-top: 4px;
+                letter-spacing: 0.5px;
+              "
+            >
+              Students Reached
+            </div>
+          </div>
+          <div
+            style="
+              text-align: center;
+              padding: 18px 10px;
+              background: rgba(255, 255, 255, 0.04);
+              backdrop-filter: blur(14px);
+              border-radius: 15px;
+              border: 1px solid rgba(255, 255, 255, 0.1);
+            "
+          >
+            <div
+              style="
+                font-size: 32px;
+                font-weight: 900;
+                background: linear-gradient(135deg, #38bdf8, #f472b6);
+                background-size: 200%;
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                background-clip: text;
+                animation: shimmer 4s ease infinite 1s;
+              "
+            >
+              20+
+            </div>
+            <div
+              style="
+                font-size: 10px;
+                color: rgba(140, 130, 200, 0.48);
+                font-weight: 700;
+                margin-top: 4px;
+                letter-spacing: 0.5px;
+              "
+            >
+              Events Organized
+            </div>
+          </div>
+          <div
+            style="
+              text-align: center;
+              padding: 18px 10px;
+              background: rgba(255, 255, 255, 0.04);
+              backdrop-filter: blur(14px);
+              border-radius: 15px;
+              border: 1px solid rgba(255, 255, 255, 0.1);
+            "
+          >
+            <div
+              style="
+                font-size: 32px;
+                font-weight: 900;
+                background: linear-gradient(135deg, #f472b6, #a78bfa);
+                background-size: 200%;
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                background-clip: text;
+                animation: shimmer 4s ease infinite 2s;
+              "
+            >
+              3
+            </div>
+            <div
+              style="
+                font-size: 10px;
+                color: rgba(140, 130, 200, 0.48);
+                font-weight: 700;
+                margin-top: 4px;
+                letter-spacing: 0.5px;
+              "
+            >
+              Leadership Roles
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- P6 CONTACT -->
+    <div class="panel hide-dn" id="p6">
+      <div
+        style="
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          width: 0;
+          height: 0;
+          pointer-events: none;
+        "
+      >
+        <div
+          style="
+            position: absolute;
+            width: 240px;
+            height: 240px;
+            top: -120px;
+            left: -120px;
+            border-radius: 50%;
+            border: 1px solid rgba(108, 99, 255, 0.11);
+            animation: rcw 16s linear infinite;
+          "
+        ></div>
+        <div
+          style="
+            position: absolute;
+            width: 420px;
+            height: 420px;
+            top: -210px;
+            left: -210px;
+            border-radius: 50%;
+            border: 1px solid rgba(56, 189, 248, 0.07);
+            animation: rccw 24s linear infinite;
+          "
+        ></div>
+        <div
+          style="
+            position: absolute;
+            width: 600px;
+            height: 600px;
+            top: -300px;
+            left: -300px;
+            border-radius: 50%;
+            border: 1px solid rgba(244, 114, 182, 0.04);
+            animation: rcw 34s linear infinite;
+          "
+        ></div>
+      </div>
+      <div
+        style="
+          position: absolute;
+          inset: 0;
+          background: radial-gradient(
+            ellipse at center,
+            rgba(108, 99, 255, 0.09) 0%,
+            transparent 55%
+          );
+          pointer-events: none;
+        "
+      ></div>
+      <div style="width: 100%; max-width: 670px; padding: 0 24px; z-index: 10">
+        <div style="text-align: center; margin-bottom: 38px">
+          <span class="lbl" style="color: rgba(108, 99, 255, 0.78)"
+            >Transmission Channel</span
+          >
+          <h2
+            style="
+              font-size: clamp(38px, 5.5vw, 68px);
+              font-weight: 900;
+              letter-spacing: -2.5px;
+            "
+          >
+            <span class="grad">Get In Touch</span>
+          </h2>
+          <p
+            style="
+              color: rgba(160, 150, 220, 0.38);
+              font-size: 15px;
+              margin-top: 10px;
+            "
+          >
+            Open for collaborations, opportunities, and great ideas.
+          </p>
+        </div>
+        <div
+          style="
+            display: flex;
+            gap: 11px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-bottom: 32px;
+          "
+        >
+          <a
+            href="https://github.com/Karim1412"
+            target="_blank"
+            style="
+              display: flex;
+              align-items: center;
+              gap: 8px;
+              padding: 11px 21px;
+              border-radius: 100px;
+              background: rgba(138, 112, 214, 0.1);
+              border: 1px solid rgba(138, 112, 214, 0.26);
+              color: rgba(167, 139, 250, 0.9);
+              text-decoration: none;
+              font-size: 14px;
+              font-weight: 800;
+              backdrop-filter: blur(12px);
+              transition: all 0.25s;
+            "
+            onmouseover="
+              this.style.transform = 'scale(1.08) translateY(-4px)';
+              this.style.boxShadow = '0 10px 30px rgba(138,112,214,.3)';
+            "
+            onmouseout="
+              this.style.transform = '';
+              this.style.boxShadow = '';
+            "
+            ><svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+            >
+              <path
+                d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"
+              /></svg
+            >GitHub</a
+          >
+          <a
+            href="https://linkedin.com/in/thabet-karim-04b8b9345"
+            target="_blank"
+            style="
+              display: flex;
+              align-items: center;
+              gap: 8px;
+              padding: 11px 21px;
+              border-radius: 100px;
+              background: rgba(0, 119, 181, 0.1);
+              border: 1px solid rgba(0, 119, 181, 0.26);
+              color: rgba(100, 185, 255, 0.9);
+              text-decoration: none;
+              font-size: 14px;
+              font-weight: 800;
+              backdrop-filter: blur(12px);
+              transition: all 0.25s;
+            "
+            onmouseover="
+              this.style.transform = 'scale(1.08) translateY(-4px)';
+              this.style.boxShadow = '0 10px 30px rgba(0,119,181,.28)';
+            "
+            onmouseout="
+              this.style.transform = '';
+              this.style.boxShadow = '';
+            "
+            ><svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+            >
+              <path
+                d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"
+              /></svg
+            >LinkedIn</a
+          >
+          <a
+            href="mailto:karim.thabet@ieee.org"
+            style="
+              display: flex;
+              align-items: center;
+              gap: 8px;
+              padding: 11px 21px;
+              border-radius: 100px;
+              background: rgba(244, 114, 182, 0.1);
+              border: 1px solid rgba(244, 114, 182, 0.25);
+              color: rgba(244, 114, 182, 0.9);
+              text-decoration: none;
+              font-size: 14px;
+              font-weight: 800;
+              backdrop-filter: blur(12px);
+              transition: all 0.25s;
+            "
+            onmouseover="
+              this.style.transform = 'scale(1.08) translateY(-4px)';
+              this.style.boxShadow = '0 10px 30px rgba(244,114,182,.25)';
+            "
+            onmouseout="
+              this.style.transform = '';
+              this.style.boxShadow = '';
+            "
+            ><svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.2"
+            >
+              <rect x="2" y="4" width="20" height="16" rx="2" />
+              <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" /></svg
+            >Email</a
+          >
+        </div>
+        <div class="gs" style="padding: 36px" id="cform">
+          <div
+            style="
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 13px;
+              margin-bottom: 13px;
+            "
+          >
+            <div>
+              <label
+                style="
+                  display: block;
+                  font-size: 9px;
+                  font-weight: 800;
+                  color: rgba(108, 99, 255, 0.72);
+                  text-transform: uppercase;
+                  letter-spacing: 3px;
+                  margin-bottom: 7px;
+                "
+                >Name</label
+              ><input type="text" class="fld" placeholder="Your name" id="cn" />
+            </div>
+            <div>
+              <label
+                style="
+                  display: block;
+                  font-size: 9px;
+                  font-weight: 800;
+                  color: rgba(108, 99, 255, 0.72);
+                  text-transform: uppercase;
+                  letter-spacing: 3px;
+                  margin-bottom: 7px;
+                "
+                >Email</label
+              ><input
+                type="email"
+                class="fld"
+                placeholder="your@email.com"
+                id="ce"
+              />
+            </div>
+          </div>
+          <div style="margin-bottom: 20px">
+            <label
+              style="
+                display: block;
+                font-size: 9px;
+                font-weight: 800;
+                color: rgba(108, 99, 255, 0.72);
+                text-transform: uppercase;
+                letter-spacing: 3px;
+                margin-bottom: 7px;
+              "
+              >Message</label
+            ><textarea
+              class="fld"
+              placeholder="Your message…"
+              id="cm"
+            ></textarea>
+          </div>
+          <button
+            class="bp"
+            onclick="sndmsg()"
+<button
+  id="contact-send-btn"
+  class="bp"
+  onclick="sndmsg()"
+  style="
+    width: 100%;
+    justify-content: center;
+    border-radius: 14px;
+    padding: 15px;
+    font-size: 15px;
+  "
+>
+  <svg
+    width="15"
+    height="15"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2.2"
+  >
+    <line x1="22" y1="2" x2="11" y2="13" />
+    <polygon points="22 2 15 22 11 13 2 9 22 2" />
+  </svg>
+  Send Transmission
+</button>
+        </div>
+        <div id="cok" style="display: none">
+          <div
+            class="gs"
+            style="
+              padding: 54px;
+              text-align: center;
+              animation: wavein 0.5s ease;
+            "
+          >
+            <div
+              style="
+                font-size: 62px;
+                margin-bottom: 15px;
+                animation: float 2.4s ease-in-out infinite;
+                display: inline-block;
+              "
+            >
+              🚀
+            </div>
+            <h3
+              style="
+                font-size: 26px;
+                font-weight: 900;
+                color: rgba(220, 215, 255, 0.95);
+                margin-bottom: 9px;
+              "
+            >
+              Transmission Sent!
+            </h3>
+            <p
+              style="
+                color: rgba(140, 130, 200, 0.55);
+                font-size: 15px;
+                line-height: 1.7;
+              "
+            >
+              I'll get back to you shortly.
+            </p>
+            <button class="bg" onclick="rset()" style="margin-top: 20px">
+              Send Another →
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // ═══════════════════════════════════════════════════════
+      //  SENIOR THREE.JS ENGINE — FULL CINEMATIC WORLD
+      // ═══════════════════════════════════════════════════════
+      const W = innerWidth,
+        H = innerHeight;
+      const renderer = new THREE.WebGLRenderer({
+        canvas: document.getElementById("c"),
+        antialias: true,
+        alpha: true,
+      });
+      renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+      renderer.setSize(W, H);
+      renderer.setClearColor(0, 0);
+      renderer.shadowMap.enabled = false;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.1;
+
+      const scene = new THREE.Scene();
+      // Exponential fog — thickens as camera "dives" deeper
+      scene.fog = new THREE.FogExp2(0x04020f, 0.004);
+
+      const cam = new THREE.PerspectiveCamera(60, W / H, 0.1, 2000);
+      cam.position.set(0, 0, 60);
+
+      // ── Scene-specific camera stops along Z-axis tunnel ──
+      const STOPS = [
+        {
+          z: 60,
+          tx: 0,
+          ty: 0,
+          fov: 60,
+          fog: 0.004,
+          lc1: 0x6c63ff,
+          lc2: 0x38bdf8,
+          lc3: 0xf472b6,
+        },
+        {
+          z: 20,
+          tx: 0,
+          ty: 1,
+          fov: 58,
+          fog: 0.005,
+          lc1: 0x38bdf8,
+          lc2: 0x6c63ff,
+          lc3: 0xa78bfa,
+        },
+        {
+          z: -20,
+          tx: -3,
+          ty: 2,
+          fov: 62,
+          fog: 0.006,
+          lc1: 0x667eea,
+          lc2: 0x764ba2,
+          lc3: 0x38bdf8,
+        },
+        {
+          z: -60,
+          tx: 3,
+          ty: -2,
+          fov: 65,
+          fog: 0.0072,
+          lc1: 0xf472b6,
+          lc2: 0xf5576c,
+          lc3: 0x6c63ff,
+        },
+        {
+          z: -100,
+          tx: 0,
+          ty: 0,
+          fov: 68,
+          fog: 0.0088,
+          lc1: 0xa78bfa,
+          lc2: 0x6c63ff,
+          lc3: 0x38bdf8,
+        },
+        {
+          z: -140,
+          tx: -2,
+          ty: 2,
+          fov: 70,
+          fog: 0.01,
+          lc1: 0x6c63ff,
+          lc2: 0x38bdf8,
+          lc3: 0xf472b6,
+        },
+        {
+          z: -180,
+          tx: 0,
+          ty: 0,
+          fov: 72,
+          fog: 0.012,
+          lc1: 0x38bdf8,
+          lc2: 0xf472b6,
+          lc3: 0x6c63ff,
+        },
+      ];
+
+      // ── Spring physics for camera ────────────────────────
+      let spring = {
+        px: 0,
+        py: 0,
+        pz: 60,
+        vx: 0,
+        vy: 0,
+        vz: 0,
+        tx: 0,
+        ty: 0,
+        tz: 60,
+      };
+      const K = 0.055,
+        D = 0.72; // spring constant + damping
+
+      function stepSpring() {
+        ["x", "y", "z"].forEach((a) => {
+          const f =
+            (spring["t" + a] - spring["p" + a]) * K - spring["v" + a] * D;
+          spring["v" + a] += f;
+          spring["p" + a] += spring["v" + a];
+        });
+        cam.position.set(spring.px, spring.py, spring.pz);
+      }
+
+      // ── FOV spring ───────────────────────────────────────
+      let fovCur = 60,
+        fovTgt = 60,
+        fovV = 0;
+      function stepFov() {
+        const f = (fovTgt - fovCur) * 0.048 - fovV * 0.62;
+        fovV += f;
+        fovCur += fovV;
+        cam.fov = fovCur;
+        cam.updateProjectionMatrix();
+      }
+
+      // ── Mouse influence ──────────────────────────────────
+      let mx = 0,
+        my = 0;
+      addEventListener("mousemove", (e) => {
+        mx = (e.clientX / innerWidth) * 2 - 1;
+        my = -(e.clientY / innerHeight) * 2 + 1;
+      });
+
+      // ═══════════════════════════════════════════════════════
+      //  PARTICLE SYSTEM — 3 LAYERS
+      // ═══════════════════════════════════════════════════════
+      const MOB = innerWidth < 768;
+
+      // Layer 1 — ambient deep cloud
+      function mkCloud(N, radius, speedScale, size, opa) {
+        const geo = new THREE.BufferGeometry();
+        const pos = new Float32Array(N * 3),
+          col = new Float32Array(N * 3),
+          vel = new Float32Array(N * 3);
+        const PAL = [
+          [0.42, 0.38, 1],
+          [0, 0.82, 1],
+          [0.96, 0.45, 0.71],
+          [0.65, 0.55, 1],
+          [0.94, 0.9, 1],
+          [0.21, 0.74, 0.97],
+          [0.98, 0.6, 0.18],
+        ];
+        for (let i = 0; i < N; i++) {
+          const R = radius * 0.6 + Math.random() * radius * 0.4;
+          const th = Math.random() * Math.PI * 2,
+            ph = Math.acos(2 * Math.random() - 1);
+          pos[i * 3] = R * Math.sin(ph) * Math.cos(th);
+          pos[i * 3 + 1] = R * Math.sin(ph) * Math.sin(th);
+          pos[i * 3 + 2] = R * Math.cos(ph);
+          vel[i * 3] = (Math.random() - 0.5) * 0.006 * speedScale;
+          vel[i * 3 + 1] = (Math.random() - 0.5) * 0.006 * speedScale;
+          vel[i * 3 + 2] = (Math.random() - 0.5) * 0.004 * speedScale;
+          const c = PAL[~~(Math.random() * PAL.length)];
+          col[i * 3] = c[0];
+          col[i * 3 + 1] = c[1];
+          col[i * 3 + 2] = c[2];
+        }
+        geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+        geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+        const mat = new THREE.PointsMaterial({
+          size,
+          vertexColors: true,
+          transparent: true,
+          opacity: opa,
+          sizeAttenuation: true,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+        });
+        const pts = new THREE.Points(geo, mat);
+        scene.add(pts);
+        return { pts, geo, vel, N };
+      }
+      const cloud1 = mkCloud(MOB ? 800 : 2200, 110, 0.9, 0.22, 0.55);
+      const cloud2 = mkCloud(MOB ? 300 : 700, 55, 1.4, 0.16, 0.38); // inner bright core
+      const cloud3 = mkCloud(MOB ? 200 : 500, 180, 0.4, 0.32, 0.22); // outer dim halo
+
+      // ── TUNNEL — continuous rings along Z axis ───────────
+      const TUNNEL_RINGS = [];
+      for (let i = 0; i < 40; i++) {
+        const z = 80 - i * 7;
+        const r = 14 + Math.random() * 4;
+        const geo = new THREE.TorusGeometry(
+          r,
+          0.06 + Math.random() * 0.08,
+          5,
+          80,
+        );
+        const col = i % 3 === 0 ? 0x6c63ff : i % 3 === 1 ? 0x38bdf8 : 0xf472b6;
+        const mat = new THREE.MeshBasicMaterial({
+          color: col,
+          transparent: true,
+          opacity: 0.0,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        });
+        const m = new THREE.Mesh(geo, mat);
+        m.position.z = z;
+        m.rotation.x = Math.PI / 2 + (Math.random() - 0.5) * 0.15;
+        scene.add(m);
+        TUNNEL_RINGS.push({
+          m,
+          mat,
+          bz: z,
+          phase: Math.random() * Math.PI * 2,
+        });
+      }
+
+      // ── HYPERSPACE STREAKS ───────────────────────────────
+      const SN = 340;
+      const sGeo = new THREE.BufferGeometry();
+      const sPos = new Float32Array(SN * 6),
+        sCol = new Float32Array(SN * 6);
+      const PAL2 = [
+        [0.42, 0.38, 1],
+        [0, 0.82, 1],
+        [0.96, 0.45, 0.71],
+        [0.65, 0.55, 1],
+        [0.98, 0.6, 0.18],
+      ];
+      for (let i = 0; i < SN; i++) {
+        const ang = Math.random() * Math.PI * 2,
+          rad = 1.5 + Math.random() * 22;
+        const z = cam.position.z - 150 + Math.random() * 200;
+        const x = Math.cos(ang) * rad,
+          y = Math.sin(ang) * rad,
+          L = 0.8 + Math.random() * 4.5;
+        sPos.set([x, y, z, x, y, z + L], i * 6);
+        const c = PAL2[~~(Math.random() * PAL2.length)];
+        sCol.set([c[0], c[1], c[2], c[0], c[1], c[2]], i * 6);
+      }
+      sGeo.setAttribute("position", new THREE.BufferAttribute(sPos, 3));
+      sGeo.setAttribute("color", new THREE.BufferAttribute(sCol, 3));
+      const sMat = new THREE.LineBasicMaterial({
+        vertexColors: true,
+        transparent: true,
+        opacity: 0,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      const streaks = new THREE.LineSegments(sGeo, sMat);
+      scene.add(streaks);
+
+      // ── PORTAL BURST ─────────────────────────────────────
+      const BN = 360;
+      const bGeo = new THREE.BufferGeometry();
+      const bPos = new Float32Array(BN * 3),
+        bCol = new Float32Array(BN * 3);
+      const bVel = new Float32Array(BN * 3);
+      for (let i = 0; i < BN; i++) {
+        const th = Math.random() * Math.PI * 2,
+          ph = Math.acos(2 * Math.random() - 1);
+        const sp = 0.3 + Math.random() * 1.8;
+        bVel.set(
+          [
+            Math.sin(ph) * Math.cos(th) * sp,
+            Math.sin(ph) * Math.sin(th) * sp,
+            Math.cos(ph) * sp * 0.5,
+          ],
+          i * 3,
+        );
+        const c = PAL2[~~(Math.random() * PAL2.length)];
+        bCol.set([c[0], c[1], c[2]], i * 3);
+      }
+      bGeo.setAttribute("position", new THREE.BufferAttribute(bPos, 3));
+      bGeo.setAttribute("color", new THREE.BufferAttribute(bCol, 3));
+      const bMat = new THREE.PointsMaterial({
+        size: 0.6,
+        vertexColors: true,
+        transparent: true,
+        opacity: 0,
+        sizeAttenuation: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      });
+      const burst = new THREE.Points(bGeo, bMat);
+      scene.add(burst);
+      let burstT = -1;
+
+      // ── SHOCKWAVE RING ────────────────────────────────────
+      const swGeo = new THREE.TorusGeometry(1, 0.04, 6, 80);
+      const swMat = new THREE.MeshBasicMaterial({
+        color: 0xa78bfa,
+        transparent: true,
+        opacity: 0,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      const shockwave = new THREE.Mesh(swGeo, swMat);
+      shockwave.rotation.x = Math.PI / 2;
+      scene.add(shockwave);
+      let swT = -1;
+
+      // ── SCENE-SPECIFIC WIREFRAME OBJECTS ─────────────────
+      function mkW(GC, args, col, pos, rot, rv) {
+        const m = new THREE.Mesh(
+          new GC(...args),
+          new THREE.MeshStandardMaterial({
+            color: col,
+            wireframe: true,
+            transparent: true,
+            opacity: 0.07,
+            depthWrite: false,
+          }),
+        );
+        m.position.set(...pos);
+        m.rotation.set(...rot);
+        scene.add(m);
+        return { m, rx: rv[0], ry: rv[1], rz: rv[2] || 0, bp: [...pos] };
+      }
+      const OBJ = [
+        // Scene 0 area (z~60)
+        mkW(
+          THREE.TorusGeometry,
+          [13, 2.8, 16, 80],
+          0x6c63ff,
+          [-34, 10, -10],
+          [0.3, 0, 0],
+          [0.0014, 0.003, 0],
+        ),
+        mkW(
+          THREE.IcosahedronGeometry,
+          [9, 0],
+          0x38bdf8,
+          [34, -8, -5],
+          [0, 0, 0],
+          [0.002, 0.0042, 0],
+        ),
+        // Scene 1 area (z~20)
+        mkW(
+          THREE.OctahedronGeometry,
+          [7, 0],
+          0xf472b6,
+          [3, 27, -50],
+          [0, 0, 0.3],
+          [0.005, 0.0022, 0],
+        ),
+        mkW(
+          THREE.TorusKnotGeometry,
+          [7, 2, 110, 16],
+          0xa78bfa,
+          [20, -24, -55],
+          [0, 0, 0],
+          [0.0026, 0.0034, 0],
+        ),
+        // Scene 2-3 area
+        mkW(
+          THREE.DodecahedronGeometry,
+          [6, 0],
+          0x38bdf8,
+          [-22, -22, -90],
+          [0.2, 0.4, 0],
+          [0.003, 0.005, 0],
+        ),
+        mkW(
+          THREE.TorusGeometry,
+          [9, 1.5, 11, 55],
+          0xf472b6,
+          [28, 22, -100],
+          [1.1, 0, 0],
+          [0.0045, 0.0017, 0],
+        ),
+        // Scene 4-5 area
+        mkW(
+          THREE.IcosahedronGeometry,
+          [5, 1],
+          0xffd200,
+          [-14, 29, -150],
+          [0.5, 0.2, 0],
+          [0.006, 0.003, 0],
+        ),
+        mkW(
+          THREE.SphereGeometry,
+          [6, 8, 8],
+          0xf472b6,
+          [38, 14, -160],
+          [0, 0, 0],
+          [0.003, 0.005, 0.002],
+        ),
+        // Scene 6 area
+        mkW(
+          THREE.TorusGeometry,
+          [8, 1.4, 12, 60],
+          0xa78bfa,
+          [-28, 18, -200],
+          [0.6, 0, 0.4],
+          [0.004, 0.004, 0],
+        ),
+        mkW(
+          THREE.OctahedronGeometry,
+          [5, 0],
+          0x38bdf8,
+          [25, -20, -210],
+          [0, 0.3, 0],
+          [0.005, 0.002, 0],
+        ),
+      ];
+
+      // ── LIGHTS ────────────────────────────────────────────
+      scene.add(new THREE.AmbientLight(0x9988ff, 0.28));
+      const dl = new THREE.DirectionalLight(0xffffff, 0.38);
+      dl.position.set(12, 16, 12);
+      scene.add(dl);
+      const pl1 = new THREE.PointLight(0x6c63ff, 5.5, 140);
+      const pl2 = new THREE.PointLight(0x38bdf8, 4.2, 140);
+      const pl3 = new THREE.PointLight(0xf472b6, 3.0, 100);
+      scene.add(pl1);
+      scene.add(pl2);
+      scene.add(pl3);
+
+      // ── Resize ────────────────────────────────────────────
+      addEventListener("resize", () => {
+        renderer.setSize(innerWidth, innerHeight);
+        cam.aspect = innerWidth / innerHeight;
+        cam.updateProjectionMatrix();
+      });
+
+      // ═══════════════════════════════════════════════════════
+      //  TRANSITION ENGINE
+      // ═══════════════════════════════════════════════════════
+      let cur = 0,
+        busy = false,
+        warp = 0;
+      const LABELS = [
+        "01 / 07 — Intro",
+        "02 / 07 — Education",
+        "03 / 07 — Projects",
+        "04 / 07 — AI Universe",
+        "05 / 07 — Skills",
+        "06 / 07 — IEEE",
+        "07 / 07 — Contact",
+      ];
+
+      function go(idx) {
+        if (idx === cur || busy) return;
+        const prev = cur;
+        cur = idx;
+        busy = true;
+
+        // Camera spring target
+        const S = STOPS[idx];
+        spring.tx = S.tx + 0;
+        spring.ty = S.ty;
+        spring.tz = S.z;
+        fovTgt = S.fov;
+        scene.fog.density = S.fog; // will lerp in render loop
+
+        // Light colors
+        pl1.color.setHex(S.lc1);
+        pl2.color.setHex(S.lc2);
+        pl3.color.setHex(S.lc3);
+
+        // UI
+        document.querySelectorAll(".nd").forEach((d, i) => {
+          d.classList.toggle("on", i === idx);
+        });
+        document.querySelectorAll(".nw").forEach((d, i) => {
+          d.classList.toggle("on", i === idx);
+        });
+        document.getElementById("scl").textContent = LABELS[idx];
+        document.getElementById("bar").style.width = (idx / 6) * 100 + "%";
+        document.getElementById("hint").style.opacity = idx === 0 ? ".55" : "0";
+
+        // ── TRANSITION SEQUENCE ──────────────────────────────
+        const fwd = idx > prev;
+        const DUR = 950,
+          start = performance.now();
+        const flashEl = document.getElementById("flash");
+
+        // Hide current panel
+        const fromP = document.getElementById("p" + prev);
+        fromP.classList.remove("show");
+        fromP.classList.add(fwd ? "hide-up" : "hide-dn");
+
+        function frame(now) {
+          const raw = Math.min((now - start) / DUR, 1);
+          // easeInOutQuart
+          const t =
+            raw < 0.5 ? 8 * raw ** 4 : 1 - Math.pow(-2 * raw + 2, 4) / 2;
+
+          // ── Warp streaks ──
+          warp = Math.sin(raw * Math.PI) * 1.2;
+          sMat.opacity = warp * 0.75;
+          const sa = sGeo.attributes.position.array;
+          for (let i = 0; i < SN; i++) {
+            sa[i * 6 + 2] += warp * 4.5;
+            sa[i * 6 + 5] += warp * 4.5;
+            if (sa[i * 6 + 2] > cam.position.z + 55) {
+              const ang = Math.random() * Math.PI * 2,
+                rad = 1.5 + Math.random() * 22;
+              const nz = cam.position.z - 160;
+              const x = Math.cos(ang) * rad,
+                y = Math.sin(ang) * rad;
+              sa.set([x, y, nz, x, y, nz + 0.8 + Math.random() * 4.5], i * 6);
+            }
+          }
+          sGeo.attributes.position.needsUpdate = true;
+
+          // ── Tunnel rings rush ──
+          TUNNEL_RINGS.forEach(({ m, mat, bz }, i) => {
+            const delay = i * 0.022;
+            const rt = Math.max(0, Math.min((raw - delay) / 0.48, 1));
+            const ease = rt * rt * (3 - 2 * rt);
+            mat.opacity = ease * (1 - ease) * 1.6;
+            m.position.z = bz + ease * (fwd ? 220 : -220);
+            m.scale.setScalar(1 + ease * 3);
+            m.rotation.z += fwd ? 0.028 : -0.028;
+          });
+
+          // ── Portal burst at peak ──
+          if (raw > 0.12 && raw < 0.18 && burstT < 0) {
+            burstT = 0;
+            // Place burst at camera position
+            burst.position.copy(cam.position);
+            burst.position.z -= 8;
+          }
+          if (burstT >= 0) {
+            burstT += 0.04;
+            const ba = bGeo.attributes.position.array;
+            for (let i = 0; i < BN; i++) {
+              ba[i * 3] = bVel[i * 3] * burstT * 22;
+              ba[i * 3 + 1] = bVel[i * 3 + 1] * burstT * 22;
+              ba[i * 3 + 2] = bVel[i * 3 + 2] * burstT * 22;
+            }
+            bGeo.attributes.position.needsUpdate = true;
+            bMat.opacity = Math.max(0, 0.95 - burstT * 0.72);
+            if (burstT > 1.4) {
+              burstT = -1;
+              bMat.opacity = 0;
+            }
+          }
+
+          // ── Shockwave ring ──
+          if (raw > 0.1 && raw < 0.16 && swT < 0) {
+            swT = 0;
+            shockwave.position.copy(cam.position);
+            shockwave.position.z -= 10;
+          }
+          if (swT >= 0) {
+            swT += 0.05;
+            const sc = 1 + swT * 28;
+            shockwave.scale.set(sc, sc, sc);
+            swMat.opacity = Math.max(0, 0.8 - swT * 0.75);
+            if (swT > 1.1) {
+              swT = -1;
+              swMat.opacity = 0;
+            }
+          }
+
+          // ── Screen flash at midpoint ──
+          if (raw < 0.5) {
+            flashEl.style.opacity = (raw / 0.5) * 0.18 + "";
+          } else {
+            flashEl.style.opacity = ((1 - raw) / 0.5) * 0.18 + "";
+          }
+
+          // ── Fog surge during transition ──
+          const fA = STOPS[prev].fog,
+            fB = STOPS[idx].fog,
+            fPk = Math.max(fA, fB) * 2.6;
+          scene.fog.density =
+            raw < 0.5
+              ? fA + (fPk - fA) * (raw * 2)
+              : fPk + (fB - fPk) * ((raw - 0.5) * 2);
+
+          if (raw < 1) {
+            requestAnimationFrame(frame);
+          } else {
+            // Cleanup
+            warp = 0;
+            sMat.opacity = 0;
+            flashEl.style.opacity = "0";
+            TUNNEL_RINGS.forEach(({ m, mat, bz }) => {
+              mat.opacity = 0;
+              m.position.z = bz;
+              m.scale.setScalar(1);
+            });
+            scene.fog.density = STOPS[idx].fog;
+
+            // Reveal new panel with spring-in
+            const toP = document.getElementById("p" + idx);
+            toP.classList.remove("hide-up", "hide-dn", "show");
+            void toP.offsetWidth; // reflow
+            toP.classList.add("show");
+            setTimeout(() => {
+              busy = false;
+            }, 600);
+          }
+        }
+        requestAnimationFrame(frame);
+      }
+
+      // ── Input ─────────────────────────────────────────────
+      let wacc = 0,
+        wlast = 0;
+      addEventListener(
+        "wheel",
+        (e) => {
+          e.preventDefault();
+          if (busy) return;
+          const now = Date.now();
+          if (now - wlast < 100) return;
+          wacc += e.deltaY;
+          if (Math.abs(wacc) > 65) {
+            const n = Math.max(0, Math.min(6, cur + (wacc > 0 ? 1 : -1)));
+            if (n !== cur) go(n);
+            wacc = 0;
+            wlast = now;
+          }
+        },
+        { passive: false },
+      );
+
+      let ty0 = 0;
+      addEventListener(
+        "touchstart",
+        (e) => {
+          ty0 = e.touches[0].clientY;
+        },
+        { passive: true },
+      );
+      addEventListener(
+        "touchend",
+        (e) => {
+          if (busy) return;
+          const dy = ty0 - e.changedTouches[0].clientY;
+          if (Math.abs(dy) > 42) {
+            const n = Math.max(0, Math.min(6, cur + (dy > 0 ? 1 : -1)));
+            if (n !== cur) go(n);
+          }
+        },
+        { passive: true },
+      );
+      addEventListener("keydown", (e) => {
+        if (e.key === "ArrowDown" || e.key === "PageDown")
+          go(Math.min(6, cur + 1));
+        if (e.key === "ArrowUp" || e.key === "PageUp") go(Math.max(0, cur - 1));
+      });
+
+      // ═══════════════════════════════════════════════════════
+      //  RENDER LOOP
+      // ═══════════════════════════════════════════════════════
+      let T = 0;
+      function tick() {
+        requestAnimationFrame(tick);
+        T += 0.0024;
+
+        // Spring camera + mouse drift
+        const mi = busy ? 0.2 : 1;
+        spring.tx = STOPS[cur].tx + mx * 6 * mi;
+        spring.ty = STOPS[cur].ty + my * 3 * mi;
+        spring.tz = STOPS[cur].z;
+        stepSpring();
+        stepFov();
+
+        // Camera look at
+        cam.lookAt(
+          cam.position.x * 0.08,
+          cam.position.y * 0.08,
+          cam.position.z - 40,
+        );
+
+        // ── Particle cloud animation ──
+        function animCloud({ pts, geo, vel, N }) {
+          const a = geo.attributes.position.array;
+          for (let i = 0; i < N; i++) {
+            a[i * 3] += vel[i * 3];
+            a[i * 3 + 1] += vel[i * 3 + 1];
+            a[i * 3 + 2] += vel[i * 3 + 2];
+            const d = Math.sqrt(
+              a[i * 3] ** 2 + a[i * 3 + 1] ** 2 + a[i * 3 + 2] ** 2,
+            );
+            if (d > 130) {
+              a[i * 3] *= 0.84;
+              a[i * 3 + 1] *= 0.84;
+              a[i * 3 + 2] *= 0.84;
+              vel[i * 3] = (Math.random() - 0.5) * 0.006;
+              vel[i * 3 + 1] = (Math.random() - 0.5) * 0.006;
+              vel[i * 3 + 2] = (Math.random() - 0.5) * 0.004;
+            }
+          }
+          geo.attributes.position.needsUpdate = true;
+          pts.rotation.y = T * 0.018;
+          pts.rotation.x = Math.sin(T * 0.08) * 0.022;
+        }
+        animCloud(cloud1);
+        animCloud(cloud2);
+        animCloud(cloud3);
+
+        // ── Tunnel ring ambient pulse ──
+        TUNNEL_RINGS.forEach(({ m, mat, bz, phase }, i) => {
+          if (mat.opacity > 0.01) return; // skip if transition is using them
+          const dist = Math.abs(m.position.z - cam.position.z);
+          const prox = Math.max(0, 1 - dist / 80);
+          mat.opacity = prox * 0.045 + Math.sin(T * 1.2 + phase) * prox * 0.022;
+          m.rotation.z += 0.002;
+        });
+
+        // ── Wireframe object animation ──
+        OBJ.forEach(({ m, rx, ry, rz, bp }, i) => {
+          m.rotation.x += rx;
+          m.rotation.y += ry;
+          m.rotation.z += rz;
+          m.position.y = bp[1] + Math.sin(T + i * 1.4) * 0.7;
+          // fade by proximity to camera
+          const dz = Math.abs(m.position.z - cam.position.z);
+          const mat = m.material;
+          mat.opacity = Math.max(0, 0.07 * Math.max(0, 1 - dz / 120));
+        });
+
+        // ── Lights orbit ──
+        pl1.position.set(
+          Math.sin(T) * 48,
+          Math.cos(T * 0.7) * 26,
+          cam.position.z - 30 + Math.cos(T) * 18,
+        );
+        pl2.position.set(
+          Math.cos(T * 0.82) * 48,
+          Math.sin(T * 1.1) * 20,
+          cam.position.z - 30 + Math.sin(T * 0.82) * 18,
+        );
+        pl3.position.set(
+          Math.sin(T * 1.3) * 30,
+          Math.cos(T * 0.95) * 30,
+          cam.position.z - 20,
+        );
+
+        renderer.render(scene, cam);
+      }
+      tick();
+
+      // ── Initial spring target ──
+      spring.tx = STOPS[0].tx;
+      spring.ty = STOPS[0].ty;
+      spring.tz = STOPS[0].z;
+
+      // ═══════════════════════════════════════════════════════
+      //  SKILLS GALAXY
+      // ═══════════════════════════════════════════════════════
+      (() => {
+        const S = [
+          { n: "React", c: "Frontend", h: "#61DAFB" },
+          { n: "Angular", c: "Frontend", h: "#DD0031" },
+          { n: "Flutter", c: "Mobile", h: "#54C5F8" },
+          { n: "Node.js", c: "Backend", h: "#68A063" },
+          { n: "Spring Boot", c: "Backend", h: "#6DB33F" },
+          { n: ".NET", c: "Backend", h: "#7B68EE" },
+          { n: "AWS", c: "Cloud", h: "#FF9900" },
+          { n: "Azure", c: "Cloud", h: "#0089D6" },
+          { n: "Machine Learning", c: "AI", h: "#f472b6" },
+          { n: "Deep Learning", c: "AI", h: "#FF4757" },
+          { n: "Computer Vision", c: "AI", h: "#2ED573" },
+          { n: "Agentic AI", c: "AI", h: "#a78bfa" },
+          { n: "Firebase", c: "Database", h: "#FFCA28" },
+          { n: "MongoDB", c: "Database", h: "#47A248" },
+          { n: "SQL", c: "Database", h: "#4479A1" },
+          { n: "GitHub", c: "Tools", h: "#8A70D6" },
+        ];
+        const g = document.getElementById("sg");
+        S.forEach((s, i) => {
+          const el = document.createElement("div");
+          el.style.cssText = `padding:9px 19px;border-radius:100px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);backdrop-filter:blur(14px);cursor:default;transition:all .34s cubic-bezier(.34,1.56,.64,1);animation:float ${2.4 + (i % 4) * 0.55}s ease-in-out infinite ${i * 0.09}s`;
+          el.innerHTML = `<span style="font-size:13px;font-weight:800;color:rgba(180,170,240,.7);transition:color .25s" class="sn">${s.n}</span>`;
+          el.onmouseenter = () => {
+            el.style.background = s.h + "1a";
+            el.style.borderColor = s.h + "48";
+            el.style.transform = "scale(1.17) translateY(-7px)";
+            el.style.boxShadow = `0 10px 34px ${s.h}26`;
+            el.querySelector(".sn").style.color = s.h;
+            if (!el.querySelector(".sc")) {
+              const sc = document.createElement("span");
+              sc.className = "sc";
+              sc.style.cssText = `display:block;font-size:9px;color:${s.h};font-weight:800;margin-top:1px;letter-spacing:1px;text-align:center`;
+              sc.textContent = s.c;
+              el.appendChild(sc);
+            }
+          };
+          el.onmouseleave = () => {
+            el.style.background = "rgba(255,255,255,.06)";
+            el.style.borderColor = "rgba(255,255,255,.12)";
+            el.style.transform = "";
+            el.style.boxShadow = "";
+            el.querySelector(".sn").style.color = "rgba(180,170,240,.7)";
+            const sc = el.querySelector(".sc");
+            if (sc) sc.remove();
+          };
+          g.appendChild(el);
+        });
+      })();
+
+      // ═══════════════════════════════════════════════════════
+      //  INTERACTIONS
+      // ═══════════════════════════════════════════════════════
+      const fs = { 1: 0, 2: 0 };
+      function tfs(n) {
+        fs[n] = 1 - fs[n];
+        const card = document.getElementById("pf" + n);
+        document.getElementById("s" + n + "e").style.display = fs[n]
+          ? "block"
+          : "none";
+        document.getElementById("s" + n + "t").style.display = fs[n]
+          ? "none"
+          : "";
+        document.getElementById("s" + n + "c").textContent = fs[n]
+          ? "▲ COLLAPSE"
+          : "▼ EXPLORE";
+        card.style.boxShadow = fs[n] ? "0 28px 80px rgba(108,99,255,.3)" : "";
+        card.style.transform = fs[n] ? "scale(1.02)" : "";
+      }
+      const as = { 1: 0, 2: 0, 3: 0, 4: 0 };
+      function tai(n) {
+        [1, 2, 3, 4].forEach((i) => {
+          if (i !== n && as[i]) {
+            as[i] = 0;
+            document.getElementById("a" + i + "e").style.display = "none";
+            document.getElementById("a" + i + "t").style.display = "";
+            document.getElementById("a" + i + "c").textContent = "▼ EXPLORE";
+            const c = document.getElementById("a" + i);
+            c.style.transform = "";
+            c.style.zIndex = "";
+          }
+        });
+        as[n] = 1 - as[n];
+        const card = document.getElementById("a" + n);
+        document.getElementById("a" + n + "e").style.display = as[n]
+          ? "block"
+          : "none";
+        document.getElementById("a" + n + "t").style.display = as[n]
+          ? "none"
+          : "";
+        document.getElementById("a" + n + "c").textContent = as[n]
+          ? "▲ COLLAPSE"
+          : "▼ EXPLORE";
+        card.style.transform = as[n] ? "scale(1.05) translateY(-8px)" : "";
+        card.style.zIndex = as[n] ? "20" : "";
+      }
+      async function sndmsg() {
+        const name = document.getElementById("cn").value.trim();
+        const email = document.getElementById("ce").value.trim();
+        const msg = document.getElementById("cm").value.trim();
+        if (!name || !email || !msg) {
+          const f = document.getElementById("cform");
+          f.style.borderColor = "rgba(244,114,182,.5)";
+          setTimeout(() => (f.style.borderColor = ""), 1400);
+          return;
+        }
+
+        // Disable button, show sending state
+        const btn = document.getElementById("contact-send-btn");
+        const origHTML = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML =
+          '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Sending…';
+        btn.style.background = "linear-gradient(135deg,#a78bfa,#6C63FF)";
+        btn.style.animation = "none";
+
+        const timestamp = new Date().toLocaleString("en-GB", {
+          weekday: "long",
+          year: "numeric",
+          month: "long",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+          timeZoneName: "short",
+        });
+
+        // ── Save to Firestore "messages" collection ─────────────────────
+        let savedToDb = false;
+        try {
+          if (typeof _cbDb !== "undefined" && _cbDb) {
+            await _cbDb.collection("messages").add({
+              name,
+              email,
+              message: msg,
+              sentAt: firebase.firestore.FieldValue.serverTimestamp(),
+              sentAtISO: new Date().toISOString(),
+              sessionId:
+                typeof CB_SESSION_ID !== "undefined"
+                  ? CB_SESSION_ID
+                  : "unknown",
+              pageUrl: window.location.href,
+              read: false,
+            });
+            savedToDb = true;
+            console.log("[Contact] ✓ Message saved to Firestore");
+          }
+        } catch (e) {
+          console.warn("[Contact] Firestore error:", e.message);
+        }
+
+        // ── Send EmailJS notification ───────────────────────────────────
+        try {
+          const svcId = window._ENV && window._ENV.EMAILJS_SERVICE_ID;
+          const tplId = window._ENV && window._ENV.EMAILJS_CONTACT_TEMPLATE_ID;
+          const pubKey = window._ENV && window._ENV.EMAILJS_PUBLIC_KEY;
+          if (typeof emailjs !== "undefined" && svcId && tplId && pubKey) {
+            emailjs.init({ publicKey: pubKey });
+            await emailjs.send(svcId, tplId, {
+              from_name: name,
+              from_email: email,
+              message: msg,
+              sent_time: timestamp,
+              to_email: "karim.thabet@ieee.org",
+            });
+            console.log("[Contact] ✓ Email notification sent");
+          }
+        } catch (e) {
+          console.warn("[Contact] EmailJS error:", e.message);
+        }
+
+        // ── Show success ────────────────────────────────────────────────
+        document.getElementById("cform").style.display = "none";
+        document.getElementById("cok").style.display = "block";
+      }
+      function rset() {
+        ["cn", "ce", "cm"].forEach(
+          (id) => (document.getElementById(id).value = ""),
+        );
+        document.getElementById("cform").style.display = "block";
+        document.getElementById("cok").style.display = "none";
+      }
+      function dlcv(e) {
+        const b = e.currentTarget;
+        const CV_FILE = "cvKarim_ang.pdf";
+
+        // 1. Open in new tab
+        window.open(CV_FILE, "_blank");
+
+        // 3. Visual feedback
+        b.innerHTML =
+          '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> Downloading!';
+        b.style.background = "linear-gradient(135deg,#43e97b,#38f9d7)";
+        b.style.animation = "none";
+        setTimeout(() => {
+          b.innerHTML =
+            '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Download CV';
+          b.style.background = "";
+          b.style.animation = "";
+        }, 3000);
+      }
+    </script>
+
+    <!-- ═══════════════════════════════════════════════════════
+  KARIM AI ASSISTANT + SILENT VISITOR TRACKER
+  ═══════════════════════════════════════════════════════ -->
+    <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+
+    <style>
+      /* ─── ANIMATIONS ──────────────────────────────────────── */
+      @keyframes cb-orbit {
+        from {
+          transform: rotate(0deg) translateX(32px) rotate(0deg);
+        }
+        to {
+          transform: rotate(360deg) translateX(32px) rotate(-360deg);
+        }
+      }
+      @keyframes cb-orbit2 {
+        from {
+          transform: rotate(180deg) translateX(26px) rotate(-180deg);
+        }
+        to {
+          transform: rotate(540deg) translateX(26px) rotate(-540deg);
+        }
+      }
+      @keyframes cb-pulse {
+        0%,
+        100% {
+          box-shadow:
+            0 0 0 0 rgba(108, 99, 255, 0.65),
+            0 0 32px rgba(108, 99, 255, 0.35);
+        }
+        70% {
+          box-shadow:
+            0 0 0 14px rgba(108, 99, 255, 0),
+            0 0 48px rgba(56, 189, 248, 0.3);
+        }
+      }
+      @keyframes cb-glow {
+        0%,
+        100% {
+          box-shadow:
+            0 0 24px rgba(108, 99, 255, 0.55),
+            0 0 48px rgba(108, 99, 255, 0.22),
+            0 8px 32px rgba(0, 0, 0, 0.55);
+        }
+        50% {
+          box-shadow:
+            0 0 52px rgba(108, 99, 255, 0.9),
+            0 0 100px rgba(56, 189, 248, 0.38),
+            0 8px 32px rgba(0, 0, 0, 0.55);
+        }
+      }
+      @keyframes cb-float {
+        0%,
+        100% {
+          transform: translateY(0) scale(1);
+        }
+        50% {
+          transform: translateY(-7px) scale(1.04);
+        }
+      }
+      @keyframes cb-badge {
+        0% {
+          transform: scale(0) rotate(-30deg);
+        }
+        60% {
+          transform: scale(1.35) rotate(6deg);
+        }
+        100% {
+          transform: scale(1) rotate(0);
+        }
+      }
+      @keyframes cb-winIn {
+        from {
+          opacity: 0;
+          transform: translateY(28px) scale(0.92);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+      }
+      @keyframes cb-winOut {
+        from {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+        to {
+          opacity: 0;
+          transform: translateY(28px) scale(0.92);
+        }
+      }
+      @keyframes cb-msgIn {
+        from {
+          opacity: 0;
+          transform: translateX(-14px);
+        }
+        to {
+          opacity: 1;
+          transform: translateX(0);
+        }
+      }
+      @keyframes cb-msgInR {
+        from {
+          opacity: 0;
+          transform: translateX(14px);
+        }
+        to {
+          opacity: 1;
+          transform: translateX(0);
+        }
+      }
+      @keyframes cb-dot {
+        0%,
+        80%,
+        100% {
+          opacity: 0.2;
+          transform: scale(0.75);
+        }
+        40% {
+          opacity: 1;
+          transform: scale(1.25);
+        }
+      }
+      @keyframes cb-scan {
+        0% {
+          top: -3px;
+          opacity: 0.9;
+        }
+        100% {
+          top: 108%;
+          opacity: 0;
+        }
+      }
+      @keyframes cb-ring {
+        0% {
+          transform: translate(-50%, -50%) scale(1);
+          opacity: 0.6;
+        }
+        100% {
+          transform: translate(-50%, -50%) scale(2.4);
+          opacity: 0;
+        }
+      }
+      @keyframes cb-rotateSlow {
+        from {
+          transform: rotate(0deg);
+        }
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      /* ─── FAB BUTTON ──────────────────────────────────────── */
+      #cb-fab {
+        position: fixed;
+        bottom: 32px;
+        right: 32px;
+        z-index: 9000;
+        width: 66px;
+        height: 66px;
+        border-radius: 50%;
+        border: none;
+        background: linear-gradient(
+          135deg,
+          #6c63ff 0%,
+          #38bdf8 55%,
+          #a78bfa 100%
+        );
+        cursor: pointer;
+        outline: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        animation:
+          cb-float 3.2s ease-in-out infinite,
+          cb-glow 2.6s ease-in-out infinite;
+        transition: transform 0.26s cubic-bezier(0.34, 1.56, 0.64, 1);
+      }
+      #cb-fab:hover {
+        transform: scale(1.16) translateY(-5px);
+      }
+      #cb-fab:active {
+        transform: scale(0.94);
+      }
+
+      /* Orbiting dots on button */
+      #cb-fab-orb {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+      .cb-orb-d {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        margin: -3.5px;
+      }
+      .cb-orb-d:nth-child(1) {
+        background: #fff;
+        animation: cb-orbit 3.5s linear infinite;
+        box-shadow: 0 0 8px rgba(255, 255, 255, 0.8);
+      }
+      .cb-orb-d:nth-child(2) {
+        background: #f472b6;
+        animation: cb-orbit2 5s linear infinite;
+        box-shadow: 0 0 8px rgba(244, 114, 182, 0.8);
+      }
+
+      /* Pulse ring */
+      #cb-fab::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        animation: cb-pulse 2.8s ease-in-out infinite;
+      }
+
+      /* Icon swap */
+      #cb-fab .ico-chat {
+        transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+      }
+      #cb-fab .ico-x {
+        position: absolute;
+        opacity: 0;
+        transform: scale(0) rotate(-90deg);
+        transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+      }
+      #cb-fab.open .ico-chat {
+        opacity: 0;
+        transform: scale(0) rotate(90deg);
+      }
+      #cb-fab.open .ico-x {
+        opacity: 1;
+        transform: scale(1) rotate(0);
+      }
+
+      /* Badge */
+      #cb-badge {
+        position: absolute;
+        top: -5px;
+        right: -5px;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #f472b6, #f5576c);
+        color: #fff;
+        font-size: 11px;
+        font-weight: 900;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 2.5px solid #02010a;
+        animation: cb-badge 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) 1.2s both;
+        pointer-events: none;
+      }
+
+      /* ─── CHAT WINDOW ─────────────────────────────────────── */
+      #cb-win {
+        position: fixed;
+        bottom: 114px;
+        right: 32px;
+        z-index: 8999;
+        width: min(420px, calc(100vw - 52px));
+        height: min(580px, calc(100vh - 170px));
+        border-radius: 26px;
+        background: rgba(4, 2, 18, 0.96);
+        backdrop-filter: blur(44px);
+        -webkit-backdrop-filter: blur(44px);
+        border: 1px solid rgba(108, 99, 255, 0.3);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        box-shadow:
+          0 40px 90px rgba(0, 0, 0, 0.75),
+          0 0 0 1px rgba(108, 99, 255, 0.14),
+          0 0 80px rgba(108, 99, 255, 0.1),
+          inset 0 1px 0 rgba(255, 255, 255, 0.06);
+        display: none;
+      }
+      #cb-win.opening {
+        display: flex;
+        animation: cb-winIn 0.44s cubic-bezier(0.22, 1, 0.36, 1) both;
+      }
+      #cb-win.open {
+        display: flex;
+      }
+      #cb-win.closing {
+        animation: cb-winOut 0.32s ease forwards;
+      }
+
+      /* Decorative top border glow */
+      #cb-win::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 2px;
+        background: linear-gradient(90deg, #6c63ff, #38bdf8, #f472b6, #6c63ff);
+        background-size: 200%;
+        animation: shimmer 3s linear infinite;
+      }
+
+      /* Header */
+      #cb-hd {
+        padding: 18px 20px 15px;
+        background: linear-gradient(
+          135deg,
+          rgba(108, 99, 255, 0.16),
+          rgba(56, 189, 248, 0.08)
+        );
+        border-bottom: 1px solid rgba(108, 99, 255, 0.16);
+        display: flex;
+        align-items: center;
+        gap: 13px;
+        flex-shrink: 0;
+        position: relative;
+        overflow: hidden;
+      }
+      #cb-hd::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        height: 1.5px;
+        bottom: 0;
+        background: linear-gradient(
+          90deg,
+          transparent,
+          rgba(108, 99, 255, 0.5),
+          rgba(56, 189, 248, 0.4),
+          transparent
+        );
+      }
+
+      /* Avatar with scan line */
+      #cb-av {
+        position: relative;
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        flex-shrink: 0;
+        background: linear-gradient(135deg, #6c63ff, #38bdf8, #f472b6);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 22px;
+        box-shadow: 0 0 20px rgba(108, 99, 255, 0.55);
+        animation: cb-pulse 3s ease-in-out infinite;
+        overflow: hidden;
+      }
+      #cb-av::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        height: 1.5px;
+        background: linear-gradient(
+          90deg,
+          transparent,
+          rgba(255, 255, 255, 0.85),
+          transparent
+        );
+        animation: cb-scan 2.8s ease-in-out infinite;
+      }
+
+      #cb-hd-info {
+        flex: 1;
+        min-width: 0;
+      }
+      #cb-hd-name {
+        font-size: 15px;
+        font-weight: 900;
+        color: rgba(220, 215, 255, 0.96);
+        letter-spacing: -0.2px;
+      }
+      #cb-hd-sub {
+        font-size: 11px;
+        color: rgba(56, 189, 248, 0.85);
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        margin-top: 2px;
+        font-weight: 700;
+      }
+      #cb-hd-sub::before {
+        content: "";
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #2ed573;
+        flex-shrink: 0;
+        box-shadow: 0 0 7px #2ed573;
+      }
+
+      #cb-x {
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.07);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: rgba(200, 195, 255, 0.55);
+        transition: all 0.2s;
+        flex-shrink: 0;
+      }
+      #cb-x:hover {
+        background: rgba(255, 255, 255, 0.14);
+        color: #fff;
+      }
+
+      /* Messages */
+      #cb-msgs {
+        flex: 1;
+        overflow-y: auto;
+        padding: 18px 16px 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 13px;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(108, 99, 255, 0.25) transparent;
+      }
+      #cb-msgs::-webkit-scrollbar {
+        width: 4px;
+      }
+      #cb-msgs::-webkit-scrollbar-thumb {
+        background: rgba(108, 99, 255, 0.3);
+        border-radius: 2px;
+      }
+
+      .cbm {
+        display: flex;
+        gap: 9px;
+        max-width: 91%;
+      }
+      .cbm.u {
+        align-self: flex-end;
+        flex-direction: row-reverse;
+      }
+      .cbm-av {
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        margin-top: 2px;
+      }
+      .cbm.b .cbm-av {
+        background: linear-gradient(135deg, #6c63ff, #38bdf8);
+        box-shadow: 0 0 12px rgba(108, 99, 255, 0.45);
+      }
+      .cbm.u .cbm-av {
+        background: linear-gradient(135deg, #f472b6, #f5576c);
+      }
+      .cbm.b {
+        animation: cb-msgIn 0.35s ease;
+      }
+      .cbm.u {
+        animation: cb-msgInR 0.35s ease;
+      }
+
+      .cb-bbl {
+        padding: 11px 15px;
+        border-radius: 17px;
+        font-size: 13.5px;
+        line-height: 1.65;
+        font-weight: 500;
+        word-break: break-word;
+      }
+      .cbm.b .cb-bbl {
+        background: rgba(108, 99, 255, 0.13);
+        border: 1px solid rgba(108, 99, 255, 0.22);
+        color: rgba(222, 218, 255, 0.92);
+        border-bottom-left-radius: 5px;
+      }
+      .cbm.u .cb-bbl {
+        background: linear-gradient(
+          135deg,
+          rgba(108, 99, 255, 0.32),
+          rgba(56, 189, 248, 0.22)
+        );
+        border: 1px solid rgba(108, 99, 255, 0.32);
+        color: rgba(222, 218, 255, 0.96);
+        border-bottom-right-radius: 5px;
+      }
+
+      /* Typing */
+      #cb-typing {
+        display: none;
+        align-items: center;
+        gap: 9px;
+        padding: 0 2px;
+        animation: cb-msgIn 0.3s ease;
+      }
+      .cb-dots {
+        display: flex;
+        gap: 5px;
+        padding: 11px 15px;
+        background: rgba(108, 99, 255, 0.11);
+        border: 1px solid rgba(108, 99, 255, 0.2);
+        border-radius: 17px;
+        border-bottom-left-radius: 5px;
+      }
+      .cb-dots span {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: rgba(167, 139, 250, 0.65);
+        display: block;
+      }
+      .cb-dots span:nth-child(1) {
+        animation: cb-dot 1.3s ease-in-out infinite 0s;
+      }
+      .cb-dots span:nth-child(2) {
+        animation: cb-dot 1.3s ease-in-out infinite 0.2s;
+      }
+      .cb-dots span:nth-child(3) {
+        animation: cb-dot 1.3s ease-in-out infinite 0.4s;
+      }
+
+      /* Quick suggestions */
+      #cb-sugg {
+        padding: 10px 14px 8px;
+        display: flex;
+        gap: 7px;
+        flex-wrap: wrap;
+        flex-shrink: 0;
+        border-top: 1px solid rgba(108, 99, 255, 0.1);
+      }
+      .cbs {
+        padding: 5px 13px;
+        border-radius: 100px;
+        background: rgba(108, 99, 255, 0.11);
+        border: 1px solid rgba(108, 99, 255, 0.24);
+        color: rgba(167, 139, 250, 0.9);
+        font-size: 11px;
+        font-weight: 800;
+        cursor: pointer;
+        transition: all 0.22s;
+        white-space: nowrap;
+        font-family: inherit;
+        letter-spacing: 0.2px;
+      }
+      .cbs:hover {
+        background: rgba(108, 99, 255, 0.26);
+        border-color: rgba(108, 99, 255, 0.55);
+        transform: translateY(-2px);
+      }
+
+      /* Input row */
+      #cb-inp-row {
+        padding: 10px 14px 16px;
+        display: flex;
+        gap: 9px;
+        align-items: flex-end;
+        flex-shrink: 0;
+        border-top: 1px solid rgba(108, 99, 255, 0.11);
+      }
+      #cb-inp {
+        flex: 1;
+        padding: 11px 15px;
+        border-radius: 15px;
+        background: rgba(255, 255, 255, 0.065);
+        border: 1.5px solid rgba(108, 99, 255, 0.22);
+        color: rgba(220, 215, 255, 0.92);
+        font-size: 13.5px;
+        outline: none;
+        resize: none;
+        max-height: 88px;
+        min-height: 44px;
+        font-family: inherit;
+        line-height: 1.5;
+        transition:
+          border-color 0.22s,
+          background 0.22s;
+        scrollbar-width: none;
+      }
+      #cb-inp:focus {
+        border-color: rgba(108, 99, 255, 0.58);
+        background: rgba(255, 255, 255, 0.11);
+      }
+      #cb-inp::placeholder {
+        color: rgba(150, 140, 210, 0.3);
+      }
+      #cb-inp::-webkit-scrollbar {
+        display: none;
+      }
+
+      #cb-snd {
+        width: 42px;
+        height: 42px;
+        border-radius: 13px;
+        flex-shrink: 0;
+        background: linear-gradient(135deg, #6c63ff, #38bdf8);
+        border: none;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 4px 18px rgba(108, 99, 255, 0.45);
+        transition:
+          transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1),
+          box-shadow 0.22s;
+      }
+      #cb-snd:hover {
+        transform: scale(1.12) translateY(-2px);
+        box-shadow: 0 8px 28px rgba(108, 99, 255, 0.65);
+      }
+      #cb-snd:active {
+        transform: scale(0.92);
+      }
+      #cb-snd:disabled {
+        opacity: 0.4;
+        cursor: default;
+        transform: none;
+      }
+
+      /* Powered by footer */
+      #cb-powered {
+        text-align: center;
+        padding: 5px 0 10px;
+        font-size: 10px;
+        color: rgba(108, 99, 255, 0.35);
+        font-weight: 700;
+        letter-spacing: 0.5px;
+        flex-shrink: 0;
+      }
+    </style>
+
+    <!-- FAB -->
+    <button
+      id="cb-fab"
+      aria-label="Chat with Karim's AI Assistant"
+      onclick="cbToggle()"
+    >
+      <div id="cb-fab-orb">
+        <div class="cb-orb-d"></div>
+        <div class="cb-orb-d"></div>
+      </div>
+      <div id="cb-badge">AI</div>
+      <svg
+        class="ico-chat"
+        width="26"
+        height="26"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="white"
+        stroke-width="1.9"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <path
+          d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
+        />
+        <circle cx="9" cy="10" r=".9" fill="white" stroke="none" />
+        <circle cx="12" cy="10" r=".9" fill="white" stroke="none" />
+        <circle cx="15" cy="10" r=".9" fill="white" stroke="none" />
+      </svg>
+      <svg
+        class="ico-x"
+        width="22"
+        height="22"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="white"
+        stroke-width="2.5"
+        stroke-linecap="round"
+      >
+        <line x1="18" y1="6" x2="6" y2="18" />
+        <line x1="6" y1="6" x2="18" y2="18" />
+      </svg>
+    </button>
+
+    <!-- WINDOW -->
+    <div id="cb-win">
+      <!-- Header -->
+      <div id="cb-hd">
+        <div id="cb-av">🤖</div>
+        <div id="cb-hd-info">
+          <div id="cb-hd-name">Karim's AI Assistant</div>
+          <div id="cb-hd-sub">Online — Ask me anything about Karim</div>
+        </div>
+        <button id="cb-x" onclick="cbToggle()">
+          <svg
+            width="11"
+            height="11"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.8"
+            stroke-linecap="round"
+          >
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
+
+      <!-- Messages -->
+      <div id="cb-msgs">
+        <div id="cb-typing">
+          <div
+            class="cbm-av"
+            style="
+              background: linear-gradient(135deg, #6c63ff, #38bdf8);
+              width: 30px;
+              height: 30px;
+              border-radius: 50%;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              font-size: 14px;
+              box-shadow: 0 0 12px rgba(108, 99, 255, 0.45);
+              flex-shrink: 0;
+            "
+          >
+            🤖
+          </div>
+          <div class="cb-dots"><span></span><span></span><span></span></div>
+        </div>
+      </div>
+
+      <!-- Quick suggestions -->
+      <div id="cb-sugg">
+        <button
+          class="cbs"
+          onclick="cbQuick('Tell me about your AI projects in detail')"
+        >
+          🤖 AI Projects
+        </button>
+        <button
+          class="cbs"
+          onclick="cbQuick('What are all your technical skills?')"
+        >
+          🛠 Skills
+        </button>
+        <button
+          class="cbs"
+          onclick="cbQuick('Tell me about your work experience')"
+        >
+          💼 Experience
+        </button>
+        <button class="cbs" onclick="cbQuick('What are your career goals?')">
+          🎯 Goals
+        </button>
+        <button class="cbs" onclick="cbQuick('How can I contact you?')">
+          📬 Contact
+        </button>
+        <button
+          class="cbs"
+          onclick="cbQuick('Tell me about your certifications')"
+        >
+          🏆 Certs
+        </button>
+      </div>
+
+      <!-- Input -->
+      <div id="cb-inp-row">
+        <textarea
+          id="cb-inp"
+          placeholder="Ask anything about Karim…"
+          rows="1"
+          onkeydown="
+            if (event.key === 'Enter' && !event.shiftKey) {
+              event.preventDefault();
+              cbSend();
+            }
+          "
+          oninput="
+            this.style.height = 'auto';
+            this.style.height = Math.min(this.scrollHeight, 88) + 'px';
+          "
+        ></textarea>
+        <button id="cb-snd" onclick="cbSend()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="white">
+            <polygon points="22 2 15 22 11 13 2 9 22 2" />
+          </svg>
+        </button>
+      </div>
+      <div id="cb-powered">✦ Powered by Claude AI</div>
+    </div>
+
+    <script>
+      // ═══════════════════════════════════════════════════════
+      //  CHATBOT ENGINE
+      // ═══════════════════════════════════════════════════════
+
+      const CB_SYSTEM = `You are Karim Thabet's personal AI portfolio assistant. You are concise, direct, and professional. Keep every answer SHORT — 2 to 4 sentences maximum. No long paragraphs.
+
+━━━ PERSONAL INFORMATION ━━━
+Full name: Karim Thabet
+Location: Sousse, Tunisia
+Phone: +216 58 122 807
+Email: karim.thabet@ieee.org
+LinkedIn: https://linkedin.com/in/thabet-karim-04b8b9345
+GitHub: https://github.com/Karim1412
+Languages spoken: Arabic (native), French (fluent), English (professional/fluent)
+Hobbies & passions: Music, sports — Karim balances his technical work with a love for music and staying active. These passions fuel his creativity and discipline in engineering.
+
+━━━ WHO IS KARIM? ━━━
+Karim Thabet is a fourth-year Software Engineering student at EPI Digital School in Sousse, Tunisia, specializing in Artificial Intelligence and full-stack development. He is driven by a deep passion for building intelligent systems that solve real problems. He combines rigorous academic training with hands-on project experience across AI, web development, mobile, and cloud engineering. His goal is to work at a world-class tech company like Google, Meta, or similar — where he can build products that reach millions of people and push the boundaries of technology.
+
+━━━ EDUCATION ━━━
+1. EPI Digital School — Software Engineering Cycle (2024–Present)
+   Engineering-level curriculum covering software architecture, AI systems, distributed computing, cloud-native development, and advanced full-stack engineering. Karim is currently in this program deepening his specialization.
+
+2. ISIMS (Institut Supérieur d'Informatique et de Multimédia de Sfax) — Integrated Preparatory Cycle (2022–2024)
+   Two intensive years of computer science fundamentals: algorithms, data structures, mathematics for computing, system programming, databases, and networks.
+
+3. Lycée Said Boubaker — Baccalaureate in Mathematics (2022)
+   Graduated with a strong mathematics baccalaureate, forming the analytical foundation for his engineering path.
+
+━━━ WORK EXPERIENCE ━━━
+
+1. Web Accord — Software Engineering Intern (2025, Ongoing)
+   At Web Accord, Karim took on full-stack responsibilities:
+   • Designed and built Flask-based web applications with dynamic, data-driven interfaces
+   • Integrated machine learning models into production systems for user personalization
+   • Built and documented REST APIs following best practices for scalability
+   • Set up deployment pipelines using Docker and CI/CD workflows
+   • Collaborated in an Agile team environment with daily standups and sprint planning
+
+2. Fatouma Bourguiba Hospital — IT Intern (2023)
+   A formative experience in healthcare IT:
+   • Developed a complete full-stack hospital management system from scratch using PHP, MySQL, and JavaScript
+   • Designed a normalized, secure relational database for storing and retrieving sensitive patient records
+   • Implemented access control and role-based permissions for doctors, nurses, and admins
+   • Improved the UI/UX significantly, reducing staff task time by redesigning key workflows
+   • Coordinated directly with medical staff to understand their needs and translate them into technical solutions
+
+━━━ PROJECTS (DETAILED) ━━━
+
+1. 🎮 AI Gesture Recognition Game — Rock-Paper-Scissors
+   A real-time computer vision game where users play Rock-Paper-Scissors against an AI using only hand gestures captured by a webcam.
+   • Tech: Python, OpenCV, MediaPipe, CNN (Convolutional Neural Network)
+   • How it works: MediaPipe detects 21 hand landmarks per frame in real-time. A trained CNN classifier maps landmark coordinates to one of three gestures. The AI opponent uses a strategy model to maximize wins.
+   • Key achievement: Runs at 30+ FPS with under 50ms inference latency on a standard laptop GPU
+   • Impact: Demonstrates mastery of real-time CV pipelines from camera input to prediction output
+
+2. 🎻 ARCO — Violin to Sheet Music (Deep Learning)
+   A novel deep learning pipeline that listens to a violin recording and automatically transcribes it into musical notation.
+   • Tech: Python, TensorFlow, Librosa, Music21
+   • How it works: Librosa extracts mel-spectrograms and chroma features from raw audio. A CNN+RNN hybrid model identifies pitch, duration, and note boundaries. Music21 renders the output as readable sheet music (MusicXML/PDF).
+   • Challenges solved: Handling vibrato, sustain, and noise in acoustic recordings
+   • This is one of Karim's most creative projects — sitting at the intersection of AI and art
+
+3. ⚔️ AI Battle System — Multi-Agent LLM Debate
+   Two large language models debate against each other on any topic the user defines.
+   • Tech: Python, LangChain, OpenAI API
+   • How it works: Users input a debate topic. Two AI agents (with different "personalities" and stances) are initialized. They exchange arguments in turns, with a third agent acting as judge scoring each round.
+   • Use cases: Educational tool, critical thinking trainer, entertainment
+   • Demonstrates advanced LLM orchestration and prompt engineering skills
+
+4. 📚 AI-Powered Quiz Generation Platform (Full-Stack + AI)
+   A complete MERN stack platform where teachers upload course content and the AI automatically generates quizzes, scoring, and leaderboards.
+   • Tech: React, Node.js, MongoDB, OpenAI API, JWT Authentication
+   • Features: Multi-role system (teacher/student/admin), AI quiz generation from PDFs and text, real-time scoring, leaderboard, progress tracking
+   • This project showcases Karim's ability to build production-grade full-stack systems integrating AI
+
+5. ⚽ Football Prediction Engine (Machine Learning)
+   A machine learning system predicting football match outcomes with high accuracy.
+   • Tech: Python, XGBoost, Pandas, Scikit-learn, Matplotlib
+   • How it works: Feature engineering on multi-season historical datasets (form, H2H, player stats, home advantage). XGBoost ensemble with cross-validation achieves 80%+ prediction accuracy.
+   • Also includes a web scraper to collect live match data
+
+━━━ TECHNICAL SKILLS (COMPREHENSIVE) ━━━
+
+Programming Languages:
+• Python — primary language for AI/ML and scripting (advanced)
+• JavaScript / TypeScript — for full-stack web development (advanced)
+• Java — backend development with Spring Boot (intermediate-advanced)
+• C++ — systems programming and algorithms (intermediate)
+
+Frontend:
+• React.js — component-based SPAs, hooks, Redux, Tailwind
+• Angular — enterprise-grade apps with TypeScript and RxJS
+• HTML5, CSS3, responsive design
+
+Backend:
+• Node.js + Express — RESTful APIs, WebSockets, JWT auth
+• Spring Boot — Java microservices, JPA, Hibernate
+• .NET (C#) — ASP.NET Core APIs
+• Flask / FastAPI — Python web frameworks for ML deployment
+
+Mobile:
+• Flutter — cross-platform iOS/Android apps with Dart
+• Kotlin — native Android development
+• Swift — native iOS development
+
+AI / Machine Learning:
+• Machine Learning — regression, classification, clustering, ensemble methods
+• Deep Learning — CNNs, RNNs, Transformers, GANs
+• Computer Vision — OpenCV, MediaPipe, image processing
+• NLP — text classification, language models, LangChain
+• Frameworks: TensorFlow, PyTorch, Scikit-learn, Keras
+
+Databases:
+• MySQL — relational design, complex queries, indexing
+• MongoDB — document-oriented NoSQL, aggregations
+• SQL Server — enterprise database management
+
+Cloud & DevOps:
+• AWS — EC2, S3, Lambda, deployment pipelines
+• Azure — cloud fundamentals, Azure services
+• Firebase — real-time database, authentication, hosting
+• Docker — containerization
+• Kubernetes — container orchestration
+• CI/CD pipelines
+
+Methodologies: Agile, Scrum, Git workflow, code review practices
+
+Creative Tools: Adobe Premiere Pro, After Effects, Photoshop, Illustrator (used for IEEE media work)
+
+Soft Skills: Leadership, teamwork, problem-solving, communication, time management, adaptability, critical thinking, decision-making, working under pressure
+
+━━━ CERTIFICATIONS ━━━
+1. NVIDIA Deep Learning Certification — covers deep neural networks, CNNs, transfer learning, and deployment
+2. Microsoft Azure — Cloud Fundamentals (AZ-900 equivalent)
+3. Cisco CCNA 1 — Introduction to Networks (routing, switching basics)
+4. Cisco CCNA 2 — Switching, Routing and Wireless Essentials
+
+━━━ LEADERSHIP & IEEE ━━━
+Karim has been deeply involved in the IEEE student community, taking on increasing leadership responsibilities:
+
+• IEEE EPI SB — Chair (2026–Present)
+  Leading the student branch at EPI Digital School. Responsibilities: organizing technical workshops, hackathons, speaker sessions; mentoring members; representing the branch at national IEEE events; managing a team of officers; growing membership.
+
+• IEEE EPI SB — Vice Chair (2024–2025)
+  Supported the chair in all organizational activities. Led the technical committee. Organized coding competitions and AI workshops.
+
+• IEEE ISIMS SB — Media Manager (2023–2024)
+  Managed all social media and digital communications. Created visual content using Adobe tools. Grew the online community and documented events.
+
+• TSYP 13 Ambassador (2025)
+  Selected as a Tunisia Young Professionals ambassador — representing young engineers at a national IEEE event.
+
+━━━ CAREER GOALS & VISION ━━━
+Karim's dream is to work at a top-tier tech company (Google, Meta, DeepMind, Microsoft Research, or similar) where he can work on large-scale AI/ML systems or full-stack products that impact millions of users. He is currently seeking a summer 2025 internship. In the longer term, he wants to be a tech lead or AI engineer building products at scale. He is open to relocation internationally.
+
+━━━ HOW TO CONTACT KARIM ━━━
+• Email: karim.thabet@ieee.org
+• Phone: +216 58 122 807
+• LinkedIn: https://linkedin.com/in/thabet-karim-04b8b9345
+• GitHub: https://github.com/Karim1412
+• Location: Sousse, Tunisia
+
+━━━ RESPONSE GUIDELINES ━━━
+- KEEP IT SHORT: maximum 2–4 sentences per answer. Never write long paragraphs.
+- Be direct — answer the question immediately, no preamble
+- Use bullet points ONLY when listing 3+ items, and keep each bullet to one line
+- Use **bold** sparingly, only for the most important term
+- One or two emojis max per message
+- If someone asks about a project: name, one-sentence description, key tech stack — that's it
+- If someone wants to contact Karim: give email + GitHub on one line
+- Respond in the same language the user writes in (English, French, or Arabic)
+- Never invent information not in this profile
+- If you don't know something, say so in one sentence`;
+
+      let cbOpen = false;
+      let cbHistory = [];
+      let cbBusy = false;
+      let cbGreeted = false;
+
+      // ── Toggle ──────────────────────────────────────────
+      function cbToggle() {
+        cbOpen = !cbOpen;
+        const fab = document.getElementById("cb-fab");
+        const win = document.getElementById("cb-win");
+
+        fab.classList.toggle("open", cbOpen);
+
+        if (cbOpen) {
+          // Hide badge
+          const badge = document.getElementById("cb-badge");
+          badge.style.transition =
+            "transform .3s cubic-bezier(.34,1.56,.64,1), opacity .3s";
+          badge.style.transform = "scale(0)";
+          badge.style.opacity = "0";
+
+          win.style.display = "flex";
+          win.classList.remove("closing");
+          win.classList.add("opening");
+          setTimeout(() => {
+            win.classList.remove("opening");
+            win.classList.add("open");
+          }, 440);
+
+          // Greet on first open
+          if (!cbGreeted) {
+            cbGreeted = true;
+            setTimeout(() => {
+              cbAddMsg(
+                "b",
+                `👋 **Hello! Welcome to Karim's portfolio!**\n\nI'm his personal AI assistant — I know everything about him: his projects, skills, experience, certifications, and goals.\n\nWhat would you like to know? You can ask me anything! 🚀`,
+              );
+            }, 500);
+          }
+          setTimeout(() => {
+            document.getElementById("cb-inp").focus();
+          }, 550);
+        } else {
+          win.classList.remove("open");
+          win.classList.add("closing");
+          setTimeout(() => {
+            win.style.display = "none";
+            win.classList.remove("closing");
+          }, 320);
+        }
+      }
+
+      // ── Add message ─────────────────────────────────────
+      function cbAddMsg(role, text) {
+        const msgs = document.getElementById("cb-msgs");
+        const typing = document.getElementById("cb-typing");
+        typing.style.display = "none";
+
+        const wrap = document.createElement("div");
+        wrap.className = `cbm ${role}`;
+
+        const av = document.createElement("div");
+        av.className = "cbm-av";
+        av.textContent = role === "b" ? "🤖" : "✦";
+
+        const bbl = document.createElement("div");
+        bbl.className = "cb-bbl";
+        // Render markdown: bold, line breaks, bullet points
+        bbl.innerHTML = text
+          .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+          .replace(/^•\s/gm, "• ")
+          .replace(/\n\n/g, "<br><br>")
+          .replace(/\n/g, "<br>");
+
+        wrap.appendChild(av);
+        wrap.appendChild(bbl);
+
+        // Insert before typing indicator (keep typing at bottom)
+        msgs.insertBefore(wrap, typing);
+        msgs.scrollTop = msgs.scrollHeight;
+      }
+
+      // ── Show typing ─────────────────────────────────────
+      function cbShowTyping() {
+        const t = document.getElementById("cb-typing");
+        const msgs = document.getElementById("cb-msgs");
+        t.style.display = "flex";
+        msgs.appendChild(t); // move to bottom
+        msgs.scrollTop = msgs.scrollHeight;
+      }
+
+      // ── Quick suggestion ────────────────────────────────
+      function cbQuick(text) {
+        document.getElementById("cb-inp").value = text;
+        cbSend();
+      }
+
+      // ── Send message ────────────────────────────────────
+      async function cbSend() {
+        if (cbBusy) return;
+        const inp = document.getElementById("cb-inp");
+        const text = inp.value.trim();
+        if (!text) return;
+
+        inp.value = "";
+        inp.style.height = "auto";
+        inp.focus();
+
+        cbAddMsg("u", text);
+        cbHistory.push({ role: "user", content: text });
+
+        cbBusy = true;
+        document.getElementById("cb-snd").disabled = true;
+        cbShowTyping();
+
+        try {
+          // 🔑 Keys loaded from config.js (see config.example.js for setup)
+          const GROQ_API_KEY = (window._ENV && window._ENV.GROQ_API_KEY) || "";
+
+          const res = await fetch(
+            "https://api.groq.com/openai/v1/chat/completions",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: "Bearer " + GROQ_API_KEY,
+              },
+              body: JSON.stringify({
+                model: "llama-3.3-70b-versatile",
+                max_tokens: 320,
+                temperature: 0.72,
+                messages: [
+                  { role: "system", content: CB_SYSTEM },
+                  ...cbHistory.slice(-12),
+                ],
+              }),
+            },
+          );
+
+          const data = await res.json();
+          const reply =
+            data.choices?.[0]?.message?.content ||
+            "I'm having a brief connection issue. Please try again in a moment! 🙏";
+
+          cbHistory.push({ role: "assistant", content: reply });
+          cbAddMsg("b", reply);
+
+          // Log Q&A to Firestore silently
+          if (typeof window.cbDbLogMessage === "function") {
+            window.cbDbLogMessage(text, reply);
+          }
+        } catch (e) {
+          cbAddMsg("b", "Connection hiccup! Please try again. 🙏");
+        }
+
+        cbBusy = false;
+        document.getElementById("cb-snd").disabled = false;
+      }
+
+      // ═══════════════════════════════════════════════════════════════
+      //  DEEP PASSIVE VISITOR INTELLIGENCE — 100% invisible to visitors
+      //  Collects every technically available passive signal.
+      //  Stores to Firestore "visitors" collection + sends EmailJS alert.
+      // ═══════════════════════════════════════════════════════════════
+
+      const EMAILJS_SERVICE_ID =
+        (window._ENV && window._ENV.EMAILJS_SERVICE_ID) || "";
+      const EMAILJS_TEMPLATE_ID =
+        (window._ENV && window._ENV.EMAILJS_TEMPLATE_ID) || "";
+      const EMAILJS_PUBLIC_KEY =
+        (window._ENV && window._ENV.EMAILJS_PUBLIC_KEY) || "";
+
+      // ── 1. CANVAS FINGERPRINT ────────────────────────────────────────
+      // Generates a near-unique ID from how the visitor's GPU+browser renders.
+      // Same person = same fingerprint across visits (even incognito).
+      function getCanvasFingerprint() {
+        try {
+          const c = document.createElement("canvas");
+          const ctx = c.getContext("2d");
+          ctx.textBaseline = "top";
+          ctx.font = "14px Arial";
+          ctx.fillStyle = "#6C63FF";
+          ctx.fillRect(0, 0, 100, 30);
+          ctx.fillStyle = "#38bdf8";
+          ctx.fillText("KarimPortfolio🤖", 2, 2);
+          ctx.strokeStyle = "#f472b6";
+          ctx.beginPath();
+          ctx.arc(50, 50, 25, 0, Math.PI * 2);
+          ctx.stroke();
+          const raw = c.toDataURL();
+          // Simple djb2 hash
+          let h = 5381;
+          for (let i = 0; i < raw.length; i++)
+            h = (h << 5) + h + raw.charCodeAt(i);
+          return (h >>> 0).toString(16).padStart(8, "0");
+        } catch (e) {
+          return "unavailable";
+        }
+      }
+
+      // ── 2. WEBGL FINGERPRINT ─────────────────────────────────────────
+      // Extracts GPU vendor + renderer string — uniquely identifies hardware.
+      function getWebGLInfo() {
+        try {
+          const c = document.createElement("canvas");
+          const gl =
+            c.getContext("webgl") || c.getContext("experimental-webgl");
+          if (!gl) return { vendor: "n/a", renderer: "n/a" };
+          const dbg = gl.getExtension("WEBGL_debug_renderer_info");
+          return {
+            vendor: dbg
+              ? gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL)
+              : gl.getParameter(gl.VENDOR),
+            renderer: dbg
+              ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)
+              : gl.getParameter(gl.RENDERER),
+          };
+        } catch (e) {
+          return { vendor: "n/a", renderer: "n/a" };
+        }
+      }
+
+      // ── 3. BATTERY INFO ──────────────────────────────────────────────
+      async function getBatteryInfo() {
+        try {
+          if (!navigator.getBattery) return "n/a";
+          const b = await navigator.getBattery();
+          return `${Math.round(b.level * 100)}% ${b.charging ? "⚡charging" : "🔋not charging"}`;
+        } catch (e) {
+          return "n/a";
+        }
+      }
+
+      // ── 4. NETWORK INFO ──────────────────────────────────────────────
+      function getNetworkInfo() {
+        try {
+          const c =
+            navigator.connection ||
+            navigator.mozConnection ||
+            navigator.webkitConnection;
+          if (!c) return "n/a";
+          return `${c.effectiveType || ""}${c.downlink ? " • " + c.downlink + "Mbps" : ""}${c.rtt ? " • RTT:" + c.rtt + "ms" : ""}`;
+        } catch (e) {
+          return "n/a";
+        }
+      }
+
+      // ── 5. REFERRER INTELLIGENCE ─────────────────────────────────────
+      // Tells you exactly how they found the portfolio.
+      function parseReferrer() {
+        const r = document.referrer;
+        if (!r)
+          return { raw: "Direct / Bookmark / Typed URL", source: "direct" };
+        const url = r.toLowerCase();
+        const source = url.includes("linkedin.com")
+          ? "💼 LinkedIn"
+          : url.includes("github.com")
+            ? "🐙 GitHub"
+            : url.includes("google.")
+              ? "🔍 Google Search"
+              : url.includes("bing.")
+                ? "🔍 Bing Search"
+                : url.includes("yahoo.")
+                  ? "🔍 Yahoo Search"
+                  : url.includes("twitter.com") || url.includes("x.com")
+                    ? "🐦 Twitter/X"
+                    : url.includes("facebook.com")
+                      ? "👤 Facebook"
+                      : url.includes("instagram.com")
+                        ? "📸 Instagram"
+                        : url.includes("youtube.com")
+                          ? "▶️ YouTube"
+                          : url.includes("reddit.com")
+                            ? "🟠 Reddit"
+                            : url.includes("t.me") || url.includes("telegram")
+                              ? "✈️ Telegram"
+                              : url.includes("whatsapp")
+                                ? "💬 WhatsApp"
+                                : "🌐 Other: " + new URL(r).hostname;
+        return { raw: r, source };
+      }
+
+      // ── 6. UTM PARAMETERS ────────────────────────────────────────────
+      // Captures tracking params if you share links like ?utm_source=linkedin
+      function getUTM() {
+        const p = new URLSearchParams(window.location.search);
+        const vals = {
+          source: p.get("utm_source") || "",
+          medium: p.get("utm_medium") || "",
+          campaign: p.get("utm_campaign") || "",
+          content: p.get("utm_content") || "",
+          term: p.get("utm_term") || "",
+          ref: p.get("ref") || p.get("from") || "",
+        };
+        const hasUTM = Object.values(vals).some((v) => v.length > 0);
+        return hasUTM ? vals : null;
+      }
+
+      // ── 7. BROWSER CAPABILITIES ──────────────────────────────────────
+      function getBrowserCapabilities() {
+        return {
+          cookiesEnabled: navigator.cookieEnabled,
+          doNotTrack: navigator.doNotTrack === "1" ? "Yes" : "No",
+          pdfViewer: navigator.pdfViewerEnabled ? "Yes" : "No",
+          touchPoints: navigator.maxTouchPoints || 0,
+          hardwareCores: navigator.hardwareConcurrency || "n/a",
+          deviceMemoryGB: navigator.deviceMemory
+            ? navigator.deviceMemory + " GB"
+            : "n/a",
+          online: navigator.onLine,
+          serviceWorker: "serviceWorker" in navigator ? "Yes" : "No",
+          webAssembly: typeof WebAssembly !== "undefined" ? "Yes" : "No",
+        };
+      }
+
+      // ── 8. SCREEN & DISPLAY ──────────────────────────────────────────
+      function getScreenInfo() {
+        return {
+          resolution: `${screen.width}x${screen.height}`,
+          viewport: `${window.innerWidth}x${window.innerHeight}`,
+          colorDepth: screen.colorDepth + " bit",
+          pixelRatio: window.devicePixelRatio || 1,
+          orientation: screen.orientation ? screen.orientation.type : "n/a",
+        };
+      }
+
+      // ── 9. TIMEZONE & LOCALE ─────────────────────────────────────────
+      function getLocaleInfo() {
+        const tz = Intl.DateTimeFormat().resolvedOptions();
+        return {
+          timezone: tz.timeZone,
+          locale: navigator.language || "n/a",
+          languages: (navigator.languages || []).join(", "),
+          hourCycle: tz.hourCycle || "n/a",
+        };
+      }
+
+      // ── 10. INSTALLED FONTS SAMPLE ───────────────────────────────────
+      // Detects a subset of common fonts — helps fingerprint the device.
+      function detectFonts() {
+        const testFonts = [
+          "Arial",
+          "Calibri",
+          "Cambria",
+          "Comic Sans MS",
+          "Courier New",
+          "Georgia",
+          "Helvetica",
+          "Impact",
+          "Tahoma",
+          "Times New Roman",
+          "Trebuchet MS",
+          "Verdana",
+          "Segoe UI",
+          "Roboto",
+          "Ubuntu",
+        ];
+        const canvas = document.createElement("canvas");
+        const ctx = canvas.getContext("2d");
+        const base = "monospace";
+        ctx.font = "72px " + base;
+        const baseW = ctx.measureText("mmmmwwww").width;
+        return testFonts.filter((f) => {
+          ctx.font = `72px '${f}', ${base}`;
+          return ctx.measureText("mmmmwwww").width !== baseW;
+        });
+      }
+
+      // ── 11. USER AGENT PARSED ────────────────────────────────────────
+      function parseUA() {
+        const ua = navigator.userAgent;
+        const mobile = /Mobi|Android|iPhone|iPad|iPod/i.test(ua);
+        const os = ua.includes("Windows NT 10")
+          ? "Windows 10/11"
+          : ua.includes("Windows NT 6.3")
+            ? "Windows 8.1"
+            : ua.includes("Windows NT 6.1")
+              ? "Windows 7"
+              : ua.includes("Windows")
+                ? "Windows"
+                : ua.includes("Mac OS X")
+                  ? "macOS " +
+                    (ua.match(/Mac OS X ([\d_]+)/) || ["", "?"])[1].replace(
+                      /_/g,
+                      ".",
+                    )
+                  : ua.includes("Android")
+                    ? "Android " +
+                      (ua.match(/Android ([\d.]+)/) || ["", "?"])[1]
+                    : ua.includes("iPhone")
+                      ? "iOS (iPhone)"
+                      : ua.includes("iPad")
+                        ? "iOS (iPad)"
+                        : ua.includes("Linux")
+                          ? "Linux"
+                          : "Unknown OS";
+        const browser = ua.includes("Edg/")
+          ? "Edge " + (ua.match(/Edg\/([\d.]+)/) || ["", ""])[1]
+          : ua.includes("Chrome/")
+            ? "Chrome " + (ua.match(/Chrome\/([\d.]+)/) || ["", ""])[1]
+            : ua.includes("Firefox/")
+              ? "Firefox " + (ua.match(/Firefox\/([\d.]+)/) || ["", ""])[1]
+              : ua.includes("Safari/")
+                ? "Safari " + (ua.match(/Version\/([\d.]+)/) || ["", ""])[1]
+                : "Other";
+        return { os, browser, mobile, raw: ua };
+      }
+
+      // ── 12. SESSION FINGERPRINT ──────────────────────────────────────
+      // Combines canvas + hardware to create a visitor ID.
+      function buildFingerprint(canvasFp, webgl, screen, locale) {
+        const raw = [
+          canvasFp,
+          webgl.renderer,
+          screen.resolution,
+          screen.colorDepth,
+          locale.timezone,
+          navigator.hardwareConcurrency,
+          navigator.deviceMemory,
+        ].join("|");
+        let h = 0;
+        for (let i = 0; i < raw.length; i++)
+          h = (Math.imul(31, h) + raw.charCodeAt(i)) | 0;
+        return (h >>> 0).toString(16).padStart(8, "0");
+      }
+
+      // ── MAIN TRACKING FUNCTION ───────────────────────────────────────
+      async function cbTrackVisitor() {
+        try {
+          const now = new Date();
+
+          // ── Gather all passive signals ──
+          const ua = parseUA();
+          const screenInfo = getScreenInfo();
+          const localeInfo = getLocaleInfo();
+          const canvasFp = getCanvasFingerprint();
+          const webgl = getWebGLInfo();
+          const caps = getBrowserCapabilities();
+          const referrer = parseReferrer();
+          const utm = getUTM();
+          const network = getNetworkInfo();
+          const fonts = detectFonts();
+          const battery = await getBatteryInfo();
+          const fingerprint = buildFingerprint(
+            canvasFp,
+            webgl,
+            screenInfo,
+            localeInfo,
+          );
+
+          // ── Deep IP geolocation ──
+          let geo = {};
+          try {
+            const r = await fetch("https://ipapi.co/json/");
+            geo = await r.json();
+          } catch (e) {}
+
+          // ── Check if returning visitor ──
+          const storedFp = localStorage.getItem("_vfp") || "";
+          const isReturning = storedFp === fingerprint;
+          const visitCount = parseInt(localStorage.getItem("_vpc") || "0") + 1;
+          const firstVisit = localStorage.getItem("_vfv") || now.toISOString();
+          localStorage.setItem("_vfp", fingerprint);
+          localStorage.setItem("_vpc", visitCount);
+          if (visitCount === 1) localStorage.setItem("_vfv", now.toISOString());
+
+          // ── Time on page tracking ──
+          const pageLoadTime = window._pageLoadStart
+            ? Math.round((Date.now() - window._pageLoadStart) / 1000) + "s"
+            : "n/a";
+
+          // ── Build full visitor profile ──
+          const profile = {
+            // Identity signals
+            fingerprint,
+            canvasFingerprint: canvasFp,
+            isReturningVisitor: isReturning,
+            visitNumber: visitCount,
+            firstVisitDate: firstVisit,
+            sessionId: CB_SESSION_ID,
+
+            // Timing
+            visitTime: now.toISOString(),
+            visitTimeLocal: now.toLocaleString("en-GB", {
+              weekday: "long",
+              year: "numeric",
+              month: "long",
+              day: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+              timeZoneName: "short",
+            }),
+            dayOfWeek: [
+              "Sunday",
+              "Monday",
+              "Tuesday",
+              "Wednesday",
+              "Thursday",
+              "Friday",
+              "Saturday",
+            ][now.getDay()],
+            hourOfDay: now.getHours() + ":00",
+
+            // Traffic source — THIS tells you where they came from
+            referrer_source: referrer.source,
+            referrer_url: referrer.raw,
+            utm_params: utm ? JSON.stringify(utm) : "none",
+            landing_page: window.location.pathname + window.location.search,
+
+            // Full IP geolocation
+            ip: geo.ip || "n/a",
+            city: geo.city || "n/a",
+            region: geo.region || "n/a",
+            country: geo.country_name || "n/a",
+            country_code: geo.country_code || "n/a",
+            postal: geo.postal || "n/a",
+            latitude: geo.latitude || "n/a",
+            longitude: geo.longitude || "n/a",
+            isp: geo.org || "n/a",
+            timezone_ip: geo.timezone || "n/a",
+
+            // Device & browser
+            os: ua.os,
+            browser: ua.browser,
+            device_type: ua.mobile ? "Mobile" : "Desktop",
+            user_agent: ua.raw,
+
+            // Hardware
+            gpu_vendor: webgl.vendor,
+            gpu_renderer: webgl.renderer,
+            screen_res: screenInfo.resolution,
+            viewport: screenInfo.viewport,
+            color_depth: screenInfo.colorDepth,
+            pixel_ratio: screenInfo.pixelRatio,
+            screen_orient: screenInfo.orientation,
+            cpu_cores: caps.hardwareCores,
+            ram_gb: caps.deviceMemoryGB,
+            touch_points: caps.touchPoints,
+            battery: battery,
+            network: network,
+
+            // Locale
+            timezone_browser: localeInfo.timezone,
+            language: localeInfo.locale,
+            languages: localeInfo.languages,
+
+            // Browser capabilities
+            do_not_track: caps.doNotTrack,
+            cookies_enabled: caps.cookiesEnabled,
+            hw_concurrency: caps.hardwareCores,
+            service_worker: caps.serviceWorker,
+            wasm: caps.webAssembly,
+            pdf_viewer: caps.pdfViewer,
+
+            // Fonts (fingerprinting)
+            detected_fonts: fonts.join(", "),
+
+            // Meta
+            page_url: window.location.href,
+          };
+
+          // ── Save to Firestore "visitors" collection ──
+          if (typeof _cbDb !== "undefined" && _cbDb) {
+            try {
+              await _cbDb.collection("visitors").add(profile);
+              console.log("[Tracker] ✓ Visitor profile saved to Firestore");
+            } catch (e) {
+              console.warn("[Tracker] Firestore save error:", e.message);
+            }
+          }
+
+          // ── Send EmailJS alert ──
+          if (
+            typeof emailjs !== "undefined" &&
+            EMAILJS_SERVICE_ID &&
+            EMAILJS_TEMPLATE_ID
+          ) {
+            emailjs.init({ publicKey: EMAILJS_PUBLIC_KEY });
+
+            // Build a rich, readable email body
+            const emailData = {
+              visitor_time: profile.visitTimeLocal,
+              visitor_location: `${profile.city}, ${profile.region}, ${profile.country} (${profile.ip})`,
+              visitor_device: `${profile.device_type} • ${profile.os} • ${profile.browser}`,
+              visitor_browser: profile.browser,
+              visitor_source: profile.referrer_source,
+              visitor_gpu: profile.gpu_renderer,
+              visitor_screen: `${profile.screen_res} @ ${profile.pixel_ratio}x`,
+              visitor_language: profile.language,
+              visitor_network: profile.network,
+              visitor_battery: profile.battery,
+              visitor_isp: profile.isp,
+              visitor_timezone: profile.timezone_browser,
+              visitor_fonts: fonts.slice(0, 8).join(", "),
+              visitor_fp: fingerprint,
+              visitor_returning: isReturning
+                ? `YES — visit #${visitCount} (first: ${new Date(firstVisit).toLocaleDateString()})`
+                : "No — first visit",
+              visitor_utm: utm
+                ? `source=${utm.source} medium=${utm.medium} campaign=${utm.campaign}`
+                : "No UTM",
+              page_url: window.location.href,
+            };
+
+            await emailjs.send(
+              EMAILJS_SERVICE_ID,
+              EMAILJS_TEMPLATE_ID,
+              emailData,
+            );
+            console.log("[Tracker] ✓ Email alert sent");
+          }
+        } catch (e) {
+          // Total silent fail — visitor experience never affected
+        }
+      }
+
+      // ── Record page load time ────────────────────────────────────────
+      window._pageLoadStart = Date.now();
+
+      // ── Fire once per session ────────────────────────────────────────
+      (function () {
+        if (!sessionStorage.getItem("_vt")) {
+          sessionStorage.setItem("_vt", "1");
+          setTimeout(cbTrackVisitor, 1800);
+        }
+      })();
+    </script>
+  </body>
+</html>
