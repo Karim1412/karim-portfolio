@@ -1715,6 +1715,16 @@
                   class="bsm"
                   >🔗 GitHub</a
                 >
+                <button
+                    class="bsm"
+                    onclick="openVideoDemo('ecommerce')"
+                    style="
+                      background: linear-gradient(135deg, rgba(244,114,182,.18), rgba(108,99,255,.18));
+                      border-color: rgba(244,114,182,.35);
+                      color: rgba(244,114,182,.95);
+                      cursor: pointer;
+                    "
+                  >▶ Video Demo</button>
               </div>
               <p
                 style="
@@ -1813,7 +1823,7 @@
                   margin-bottom: 9px;
                 "
               >
-                Quiz Platform
+              Quiz Platform
               </h3>
               <p
                 style="
@@ -1855,7 +1865,7 @@
                       border-color: rgba(221, 0, 49, 0.2);
                       font-size: 11px;
                     "
-                    >Node JS</span
+                    >Angular</span
                   ><span
                     class="tag"
                     style="
@@ -1864,7 +1874,7 @@
                       border-color: rgba(109, 179, 63, 0.22);
                       font-size: 11px;
                     "
-                    >React</span
+                    >Spring Boot</span
                   ><span
                     class="tag"
                     style="
@@ -1873,7 +1883,7 @@
                       border-color: rgba(255, 202, 40, 0.25);
                       font-size: 11px;
                     "
-                    >Mongo DB</span
+                    >Firebase</span
                   ><span
                     class="tag"
                     style="
@@ -1882,15 +1892,27 @@
                       border-color: rgba(108, 99, 255, 0.25);
                       font-size: 11px;
                     "
-                    >Express</span
+                    >WebSocket</span
                   >
                 </div>
-                <a
-                  href="https://github.com/Karim1412/quiz-platform"
-                  target="_blank"
-                  class="bsm"
-                  >🔗 GitHub</a
-                >
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                  <a
+                    href="https://github.com/Karim1412/quiz-platform"
+                    target="_blank"
+                    class="bsm"
+                    >🔗 GitHub</a
+                  >
+                  <button
+                    class="bsm"
+                    onclick="openVideoDemo('quiz')"
+                    style="
+                      background: linear-gradient(135deg, rgba(244,114,182,.18), rgba(108,99,255,.18));
+                      border-color: rgba(244,114,182,.35);
+                      color: rgba(244,114,182,.95);
+                      cursor: pointer;
+                    "
+                  >▶ Video Demo</button>
+                </div>
               </div>
               <p
                 style="
@@ -2123,6 +2145,16 @@
                 style="font-size: 11px; padding: 5px 13px"
                 >🔗 GitHub</a
               >
+              <button
+                    class="bsm"
+                    onclick="openVideoDemo('ai_battle')"
+                    style="
+                      background: linear-gradient(135deg, rgba(244,114,182,.18), rgba(108,99,255,.18));
+                      border-color: rgba(244,114,182,.35);
+                      color: rgba(244,114,182,.95);
+                      cursor: pointer;
+                    "
+                  >▶ Video Demo</button>
             </div>
             <p
               style="
@@ -2411,6 +2443,18 @@
                 style="font-size: 11px; padding: 5px 13px"
                 >🔗 GitHub</a
               >
+<button
+  class="bsm"
+  onclick="window.open('https://football-predictor-production-d20f.up.railway.app/', '_blank')"
+  style="
+    background: linear-gradient(135deg, rgba(244,114,182,.18), rgba(108,99,255,.18));
+    border-color: rgba(244,114,182,.35);
+    color: rgba(244,114,182,.95);
+    cursor: pointer;
+  "
+>
+  ▶ Play Game
+</button>
             </div>
             <p
               style="
@@ -2560,6 +2604,18 @@
                 style="font-size: 11px; padding: 5px 13px"
                 >🔗 GitHub</a
               >
+              <button
+  class="bsm"
+  onclick="window.open('https://karim1412.github.io/RPS_vs_AI/', '_blank')"
+  style="
+    background: linear-gradient(135deg, rgba(244,114,182,.18), rgba(108,99,255,.18));
+    border-color: rgba(244,114,182,.35);
+    color: rgba(244,114,182,.95);
+    cursor: pointer;
+  "
+>
+  ▶ Play Game
+</button>
             </div>
             <p
               style="
@@ -6034,5 +6090,295 @@ Karim's dream is to work at a top-tier tech company (Google, Meta, DeepMind, Mic
         }
       })();
     </script>
+<!-- ═══════════════════════════════════════════════════════════
+     VIDEO DEMO MODAL
+     ═══════════════════════════════════════════════════════════ -->
+<style>
+/* ── Modal overlay ─────────────────────────────────────────── */
+#vd-overlay {
+  position: fixed; inset: 0; z-index: 19999;
+  background: rgba(2,1,10,.88);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+  opacity: 0; pointer-events: none;
+  transition: opacity .38s cubic-bezier(.22,1,.36,1);
+}
+#vd-overlay.open {
+  opacity: 1; pointer-events: auto;
+}
+ 
+/* ── Modal box ─────────────────────────────────────────────── */
+#vd-box {
+  width: min(860px, 100%);
+  background: rgba(8,5,22,.96);
+  border: 1px solid rgba(108,99,255,.32);
+  border-radius: 26px;
+  overflow: hidden;
+  box-shadow:
+    0 48px 100px rgba(0,0,0,.8),
+    0 0 0 1px rgba(108,99,255,.12),
+    0 0 80px rgba(108,99,255,.1);
+  transform: translateY(32px) scale(.94);
+  transition: transform .42s cubic-bezier(.22,1,.36,1);
+}
+#vd-overlay.open #vd-box {
+  transform: translateY(0) scale(1);
+}
+ 
+/* ── Decorative top border ─────────────────────────────────── */
+#vd-box::before {
+  content: ''; display: block; height: 2.5px;
+  background: linear-gradient(90deg, #6C63FF, #38bdf8, #f472b6, #6C63FF);
+  background-size: 200%;
+  animation: shimmer 3s linear infinite;
+}
+ 
+/* ── Header ────────────────────────────────────────────────── */
+#vd-hdr {
+  padding: 18px 24px 16px;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 14px;
+  background: linear-gradient(135deg, rgba(108,99,255,.14), rgba(56,189,248,.08));
+  border-bottom: 1px solid rgba(108,99,255,.16);
+}
+#vd-hdr-left { display: flex; align-items: center; gap: 13px; }
+#vd-hdr-icon {
+  width: 40px; height: 40px; border-radius: 11px; flex-shrink: 0;
+  background: linear-gradient(135deg, rgba(244,114,182,.3), rgba(108,99,255,.3));
+  border: 1px solid rgba(244,114,182,.35);
+  display: flex; align-items: center; justify-content: center; font-size: 19px;
+}
+#vd-hdr-title {
+  font-size: 16px; font-weight: 900;
+  color: rgba(220,215,255,.96); letter-spacing: -.2px;
+}
+#vd-hdr-sub {
+  font-size: 12px; color: rgba(167,139,250,.6); margin-top: 2px; font-weight: 600;
+}
+#vd-close {
+  width: 34px; height: 34px; border-radius: 50%;
+  background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.12);
+  cursor: pointer; color: rgba(200,195,255,.55); font-size: 16px;
+  display: flex; align-items: center; justify-content: center;
+  transition: all .2s; flex-shrink: 0; font-family: inherit;
+}
+#vd-close:hover { background: rgba(255,255,255,.16); color: #fff; }
+ 
+/* ── Video container ───────────────────────────────────────── */
+#vd-frame-wrap {
+  position: relative;
+  padding-bottom: 56.25%; /* 16:9 ratio */
+  height: 0; overflow: hidden;
+  background: #000;
+}
+#vd-frame-wrap iframe {
+  position: absolute; top: 0; left: 0;
+  width: 100%; height: 100%; border: none;
+}
+ 
+/* ── Loading placeholder ───────────────────────────────────── */
+#vd-loading {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 14px;
+  background: rgba(4,2,15,.95);
+  transition: opacity .4s ease;
+  pointer-events: none;
+}
+#vd-loading.hidden { opacity: 0; }
+#vd-loading-spinner {
+  width: 40px; height: 40px; border-radius: 50%;
+  border: 3px solid rgba(108,99,255,.2);
+  border-top-color: #6C63FF;
+  animation: spin .8s linear infinite;
+}
+#vd-loading-text {
+  font-size: 13px; color: rgba(167,139,250,.6); font-weight: 600;
+}
+ 
+/* ── Footer ────────────────────────────────────────────────── */
+#vd-footer {
+  padding: 13px 24px;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap;
+  background: rgba(255,255,255,.03);
+  border-top: 1px solid rgba(108,99,255,.12);
+}
+#vd-footer-note {
+  font-size: 12px; color: rgba(140,130,200,.45); font-weight: 600;
+  display: flex; align-items: center; gap: 7px;
+}
+#vd-open-drive {
+  padding: 7px 16px; border-radius: 10px;
+  background: rgba(56,189,248,.12); border: 1px solid rgba(56,189,248,.28);
+  color: rgba(56,189,248,.9); font-size: 12px; font-weight: 800;
+  cursor: pointer; text-decoration: none; font-family: inherit;
+  display: flex; align-items: center; gap: 6px; transition: all .22s;
+}
+#vd-open-drive:hover {
+  background: rgba(56,189,248,.22); transform: translateY(-2px);
+}
+ 
+@keyframes spin { from{transform:rotate(0)} to{transform:rotate(360deg)} }
+</style>
+ 
+<!-- Modal HTML -->
+<div id="vd-overlay" onclick="closeVideoDemo(event)">
+  <div id="vd-box">
+    <!-- Header -->
+    <div id="vd-hdr">
+      <div id="vd-hdr-left">
+        <div id="vd-hdr-icon">▶</div>
+        <div>
+          <div id="vd-hdr-title">Video Demo</div>
+          <div id="vd-hdr-sub" id="vd-project-name">Loading…</div>
+        </div>
+      </div>
+      <button id="vd-close" onclick="closeVideoDemo(null, true)">✕</button>
+    </div>
+ 
+    <!-- Video -->
+    <div id="vd-frame-wrap">
+      <!-- Loading spinner (shown while iframe loads) -->
+      <div id="vd-loading">
+        <div id="vd-loading-spinner"></div>
+        <div id="vd-loading-text">Loading video…</div>
+      </div>
+      <!-- iframe injected by JS so video doesn't autoplay on page load -->
+      <div id="vd-iframe-slot"></div>
+    </div>
+ 
+    <!-- Footer -->
+    <div id="vd-footer">
+      <div id="vd-footer-note">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="12" y1="8" x2="12" y2="12"/>
+          <line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>
+        Hosted on Google Drive · Click outside or ✕ to close
+      </div>
+      <a id="vd-open-drive" href="#" target="_blank" rel="noopener noreferrer">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+          <polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+        </svg>
+        Open in Drive
+      </a>
+    </div>
+  </div>
+</div>
+ 
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  VIDEO DEMO MODAL — Google Drive embed
+//
+//  HOW TO ADD YOUR VIDEO:
+//  1. Upload your video to Google Drive
+//  2. Right-click → Share → "Anyone with the link" → Copy link
+//  3. Your link looks like:
+//     https://drive.google.com/file/d/FILE_ID_HERE/view?usp=sharing
+//  4. Copy only the FILE_ID part (between /d/ and /view)
+//  5. Paste it below in VIDEOS object
+// ═══════════════════════════════════════════════════════════════
+ 
+const VIDEOS = {
+  quiz: {
+    fileId:  '1JEhw7lerXs1k4FYb24j0SkICs8PVuoIw',
+    title:   'Quiz Platform',
+    subtitle: 'Real-time Multiplayer Quiz with AI — Full Demo',
+
+  },
+  // To add more projects later, add entries here:
+   ecommerce: {
+     fileId: '1r5xLuNg8Zu9FXGPlyjJ6qX3v25PR_KAS',
+     title:  'E-Commerce Platform',
+     subtitle: 'Full Product Demo',
+   },
+
+   ai_battle: {
+     fileId: '1KYmiSnJ0Oy6obrXkkDfBl2V7G_58XBi4',
+     title:  'Battle of Ai',
+     subtitle: 'Full Battle demo Gemini vs Groq',
+   },
+};
+ 
+function openVideoDemo(projectKey) {
+  const video = VIDEOS[projectKey];
+  if (!video) {
+    alert('Video not configured yet. Add the Google Drive File ID in the VIDEOS object.');
+    return;
+  }
+ 
+  // Build embed URL
+  // Google Drive preview embed format:
+  // https://drive.google.com/file/d/FILE_ID/preview
+  const embedUrl  = `https://drive.google.com/file/d/${video.fileId}/preview`;
+  const driveUrl  = `https://drive.google.com/file/d/${video.fileId}/view`;
+ 
+  // Check if placeholder ID is still there
+  if (video.fileId === 'YOUR_GOOGLE_DRIVE_FILE_ID') {
+    alert(
+      '📹 Video not set up yet'
+    );
+    return;
+  }
+ 
+  // Set header text
+  document.getElementById('vd-hdr-title').textContent = video.title;
+  document.getElementById('vd-hdr-sub').textContent   = video.subtitle;
+ 
+  // Set "Open in Drive" link
+  document.getElementById('vd-open-drive').href = driveUrl;
+ 
+  // Show loading spinner
+  document.getElementById('vd-loading').classList.remove('hidden');
+ 
+  // Inject iframe (we do this dynamically so video only loads when modal opens)
+  const slot = document.getElementById('vd-iframe-slot');
+  slot.innerHTML = `
+    <iframe
+      src="${embedUrl}"
+      width="100%" height="100%"
+      allow="autoplay; encrypted-media; fullscreen"
+      allowfullscreen
+      onload="document.getElementById('vd-loading').classList.add('hidden')"
+    ></iframe>`;
+ 
+  // Open the overlay
+  document.getElementById('vd-overlay').classList.add('open');
+ 
+  // Prevent background scroll
+  document.body.style.overflow = 'hidden';
+}
+ 
+function closeVideoDemo(event, force) {
+  // If clicking the overlay background (not the box), close
+  // If force=true (X button), always close
+  if (!force && event && event.target !== document.getElementById('vd-overlay')) return;
+ 
+  const overlay = document.getElementById('vd-overlay');
+  overlay.classList.remove('open');
+ 
+  // After animation, destroy iframe (stops video playing in background)
+  setTimeout(() => {
+    document.getElementById('vd-iframe-slot').innerHTML = '';
+    document.getElementById('vd-loading').classList.remove('hidden');
+  }, 400);
+ 
+  // Re-enable scroll
+  document.body.style.overflow = '';
+}
+ 
+// Close on Escape key
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeVideoDemo(null, true);
+});
+</script>
+    
   </body>
 </html>
